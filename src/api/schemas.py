@@ -55,6 +55,18 @@ class BudgetSet(BaseModel):
     monthly_limit: float = Field(..., gt=0, le=100_000_000)
 
 
+class ImportRowChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(..., ge=0)
+    include: bool | None = None
+    category: Category | None = None
+
+
+class ImportCommit(BaseModel):
+    rows: list[ImportRowChange] = Field(default_factory=list, max_length=2000)
+
+
 class GoalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

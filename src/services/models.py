@@ -138,3 +138,18 @@ class SavingsGoal(Base):
     saved_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ImportBatch(Base):
+    """A parsed bank statement waiting for review before its rows are saved."""
+
+    __tablename__ = "import_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | committed | discarded
+    rows: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    errors: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    imported_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

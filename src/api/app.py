@@ -20,9 +20,11 @@ from ..config import Settings
 from ..services.analytics import AnalyticsService
 from ..services.auth_service import AuthService
 from ..services.budgets import BudgetService
+from ..services.categorize import TransactionCategorizer
 from ..services.conversation_store import ConversationStore
 from ..services.db import init_db, make_engine, make_session_factory
 from ..services.goals import GoalService
+from ..services.importer import ImportService
 from ..services.insight_generator import SimpleInsightGenerator
 from ..services.pending_actions import PendingActionService
 from ..services.rate_limit import SlidingWindowLimiter
@@ -101,6 +103,9 @@ def create_app(
     app.state.budgets = budgets
     app.state.analytics = analytics
     app.state.goals = goals
+    app.state.imports = ImportService(
+        session_factory, tx_service, TransactionCategorizer(llm_client), today=today  # type: ignore[arg-type]
+    )
     app.state.limiters = Limiters.from_settings(settings)
     app.state.agent = FinanceAgent(
         registry,
