@@ -26,7 +26,8 @@ numbers taken from the database.
 - **Works without an LLM.** A deterministic keyword planner uses the same tools when no API key is set or
   the provider fails. It never re-runs a write the LLM already made.
 - **Any OpenAI-compatible provider.** OpenAI, Groq, Gemini or Ollama, selected with `OPENAI_BASE_URL`.
-- **Eval harness.** 41 cases (summaries, comparisons, lookups, writes, multi-turn, planning, guardrails). Each
+- **Eval harness.** 41 cases (summaries, comparisons, lookups, writes, multi-turn, planning, guardrails);
+  **41/41 pass with `gpt-oss-120b` on Groq**, every reported figure matching the database. Each
   reply is checked against ground truth computed from the database. See [evals/RESULTS.md](evals/RESULTS.md).
 - **Solid basics.** Money stored as `Numeric(12,2)`, income and expense types, real date-range periods,
   full transaction CRUD with filters, Alembic migrations, 208 tests on an isolated in-memory
@@ -138,6 +139,32 @@ For production, set `APP_ENV=production` (the app then refuses to start without 
 | GET | `/health` | Liveness check and whether the LLM is enabled |
 
 ## Testing and evaluation
+
+### Results
+
+Full runs of the 41-case suite (details in [evals/RESULTS.md](evals/RESULTS.md)):
+
+| Metric | LLM agent (`openai/gpt-oss-120b`, Groq) | Keyword fallback (no LLM) |
+|---|---|---|
+| Pass rate | **100%** (41/41) | 85% (35/41) |
+| Tool selection accuracy | 100% | 95% |
+| Answer correctness (numbers match DB) | 100% | 85% |
+| Replies passing the runtime grounding check | 98% | 100% (templated) |
+| Model calls per question | 1.85 | 0 |
+| Tokens per question | ~5.1k | 0 |
+| Est. cost per question (Groq paid tier) | ~$0.0009 | 0 |
+
+Notes:
+- The one grounding flag is a real catch: the model wrote ₹6,042 where the tool said ₹16,042, and the reply
+  was shown with a "couldn't verify" warning.
+- Measured LLM latency (p50 17 s) is dominated by free-tier rate-limit waits; unthrottled calls take 2-5 s.
+- Fallback failures are queries that need language understanding (month names, vendor search, amount
+  filters, relative dates in writes), which is what the LLM path adds.
+- Running the suite surfaced and fixed real bugs: grounding false positives on numbers inside tool text,
+  double confirmation of writes, provider-side tool-call rejections being treated as outages, and Gemini's
+  thought-signature requirement.
+
+### Commands
 
 ```bash
 pytest --cov                                 # unit and API tests (in-memory DB, fake LLM, mocked HTTP)
