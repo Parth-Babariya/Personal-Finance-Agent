@@ -51,7 +51,7 @@ PRICES = {
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40),
-    "llama-3.3-70b-versatile": (0.59, 0.79),  # Groq paid tier; free tier costs nothing
+    "openai/gpt-oss-120b": (0.15, 0.75),  # Groq paid tier estimate; free tier costs nothing
 }
 
 _NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
@@ -303,6 +303,13 @@ async def main() -> int:
                   + (f"  {'; '.join(res.notes)}" if res.notes else ""))
             if args.verbose or not res.passed:
                 print("           reply:", res.reply.replace("\n", " ")[:400])
+            if mode == "llm" and any("LLM unavailable" in n for n in res.notes):
+                break
+        if mode == "llm" and any("LLM unavailable" in n for r in results for n in r.notes):
+            # Provider failed mid-run (quota, outage): a partial run would misstate the model's quality.
+            print("LLM became unavailable during the run (rate limit or outage); "
+                  "no llm results were written. Re-run later.", file=sys.stderr)
+            continue
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini") if mode == "llm" else None
         summary = summarize(results, model)
         print(json.dumps(summary, indent=2))
@@ -320,6 +327,8 @@ async def main() -> int:
             f"{len(cases)} cases, synthetic history of 3.5 months, fixed date {EVAL_TODAY}.\n"
             "A case passes when the right tools were called (and forbidden ones were not) and every "
             "ground-truth number computed from the database appears in the reply.\n\n"
+            "LLM latency is measured end to end and includes any provider rate-limit retries; on free tiers "
+            "these waits (often 8-20 s) dominate the p50/p95.\n\n"
         )
         (ROOT / "evals" / "RESULTS.md").write_text(header + "\n".join(sections), encoding="utf-8")
     return 0
