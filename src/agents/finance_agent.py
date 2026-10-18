@@ -20,10 +20,16 @@ from datetime import date
 from typing import Any
 
 from src.agents.fallback_planner import KeywordFallbackPlanner
-from src.agents.prompts import GROUNDING_RETRY, TOOL_BUDGET_EXHAUSTED, UNVERIFIED_NOTE, build_system_prompt
+from src.agents.prompts import (
+    GROUNDING_RETRY,
+    TOOL_BUDGET_EXHAUSTED,
+    TOOL_CALL_REJECTED,
+    UNVERIFIED_NOTE,
+    build_system_prompt,
+)
 from src.guardrails.grounding import GroundingReport, check_grounding
 from src.guardrails.redaction import redact
-from src.llm.client import LLMClient, LLMResponse, TextDelta, Usage
+from src.llm.client import LLMClient, LLMResponse, TextDelta, ToolCallRejected, Usage
 from src.memory.conversation_store import ConversationStore
 from src.services.usage import UsageService
 from src.tools import ToolContext, ToolOutcome, ToolRegistry
@@ -34,6 +40,7 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_CALLS_PER_STEP = 6
 MAX_WRITES_PER_TURN = 3
 GROUNDING_RETRY_STEPS = 2
+MAX_REJECTED_TOOL_CALLS = 2  # provider-side tool-call rejections the model may recover from per run
 INTERRUPTED_NOTE = "\n\n(The response was interrupted. Please try again.)"
 
 # Short replies that confirm or cancel open pending actions without calling the LLM. A reply
@@ -296,6 +303,7 @@ class FinanceAgent:
         """Call the model, run requested tools, repeat until a text answer or the step budget runs out."""
         assert self._llm is not None
         tools = self._registry.schemas()
+        rejected = 0
 
         for step in range(max_steps + 1):
             budget_left = step < max_steps
@@ -303,12 +311,22 @@ class FinanceAgent:
                 messages.append({"role": "system", "content": TOOL_BUDGET_EXHAUSTED})
 
             response: LLMResponse | None = None
-            async for chunk in self._llm.stream(messages, tools if budget_left else []):
-                if isinstance(chunk, TextDelta):
-                    state.emitted_text = True
-                    yield {"type": "token", "text": chunk.text}
-                else:
-                    response = chunk
+            try:
+                async for chunk in self._llm.stream(messages, tools if budget_left else []):
+                    if isinstance(chunk, TextDelta):
+                        state.emitted_text = True
+                        yield {"type": "token", "text": chunk.text}
+                    else:
+                        response = chunk
+            except ToolCallRejected as exc:
+                # e.g. Groq validates arguments server-side and rejects the whole response;
+                # tell the model what was wrong instead of treating it as an outage.
+                rejected += 1
+                if rejected > MAX_REJECTED_TOOL_CALLS:
+                    raise
+                state.steps += 1
+                messages.append({"role": "system", "content": TOOL_CALL_REJECTED.format(error=str(exc)[:500])})
+                continue
             if response is None:
                 raise RuntimeError("LLM stream ended without a final response")
 

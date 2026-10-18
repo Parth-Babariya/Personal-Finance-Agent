@@ -164,3 +164,26 @@ async def test_provider_extra_content_is_echoed_back(registry, conversations, se
     await make_agent(registry, conversations, llm).respond("insights?", seeded)
     assistant = llm.requests[1]["messages"][-2]
     assert assistant["tool_calls"][0]["extra_content"] == signature
+
+
+async def test_provider_rejected_tool_call_is_retried_with_feedback(registry, conversations, seeded):
+    from src.llm.client import ToolCallRejected
+
+    llm = FakeLLM([
+        ToolCallRejected("tool call validation failed: /limit: maximum: got 100, want 50"),
+        call("search_transactions", query="swiggy", period="last_month", limit=20),
+        text("You placed 3 orders."),
+    ])
+    result = await make_agent(registry, conversations, llm).respond("How many Swiggy orders?", seeded)
+    assert result.mode == "llm"
+    assert [c["name"] for c in result.tool_calls] == ["search_transactions"]
+    feedback = llm.requests[1]["messages"][-1]
+    assert feedback["role"] == "system" and "maximum: got 100" in feedback["content"]
+
+
+async def test_repeated_rejections_fall_back(registry, conversations, seeded):
+    from src.llm.client import ToolCallRejected
+
+    llm = FakeLLM([ToolCallRejected("tool call validation failed")] * 3)
+    result = await make_agent(registry, conversations, llm).respond("How much did I spend on food last month?", seeded)
+    assert result.mode == "fallback" and result.fallback_reason == "llm_error"

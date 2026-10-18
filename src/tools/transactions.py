@@ -90,7 +90,11 @@ class ComparePeriods(Tool):
 
 class SearchTransactions(Tool):
     name = "search_transactions"
-    description = "Find individual transactions by text, category, type, amount range and dates."
+    description = (
+        "Find individual transactions by text, category, type, amount range and dates. match_count and "
+        "total_amount always cover all matches; limit only caps how many rows are listed, so use it for "
+        "display, not for counting."
+    )
     Args = SearchArgs
 
     def run(self, args: SearchArgs, ctx: ToolContext) -> dict[str, Any]:

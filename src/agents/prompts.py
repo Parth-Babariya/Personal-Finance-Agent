@@ -40,6 +40,11 @@ TOOL_BUDGET_EXHAUSTED = (
 )
 
 
+TOOL_CALL_REJECTED = (
+    "Your last tool call was rejected because its arguments did not match the tool schema: {error}. "
+    "Call the tool again with valid arguments."
+)
+
 GROUNDING_RETRY = (
     "Your previous answer contained figures that do not appear in any tool result: {figures}. "
     "Rewrite the answer using only numbers from tool results, calling a tool if you need more data. "

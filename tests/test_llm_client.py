@@ -87,3 +87,34 @@ async def test_gemini_style_calls_without_index_keep_thought_signature():
     calls = events[-1].tool_calls
     assert [c.id for c in calls] == ["call_1", "call_2"]  # not merged into one call
     assert calls[0].extra_content == signature and calls[1].extra_content is None
+
+
+async def test_provider_side_tool_validation_error_becomes_tool_call_rejected():
+    import pytest
+
+    from src.llm.client import ToolCallRejected
+
+    body = {"error": {"message": "tool call validation failed: parameters for tool search_transactions did not "
+                                 "match schema: errors: [`/limit`: maximum: got 100, want 50]",
+                      "type": "invalid_request_error", "code": "tool_use_failed"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=body)
+
+    client = OpenAIChatClient("k", "m", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ToolCallRejected, match="maximum: got 100"):
+        async for _ in client.stream([{"role": "user", "content": "q"}], []):
+            pass
+
+
+async def test_other_api_errors_are_not_treated_as_rejections():
+    import openai
+    import pytest
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "invalid api key", "code": "invalid_api_key"}})
+
+    client = OpenAIChatClient("k", "m", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(openai.AuthenticationError):
+        async for _ in client.stream([{"role": "user", "content": "q"}], []):
+            pass

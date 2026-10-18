@@ -22,6 +22,22 @@ class ToolCall:
     extra_content: dict[str, Any] | None = None
 
 
+class ToolCallRejected(Exception):
+    """The provider refused the model's tool call, e.g. server-side schema validation on Groq.
+
+    Unlike an outage this is recoverable: the model can be told what was wrong and retry.
+    """
+
+
+def _is_tool_call_rejection(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        code = code or body.get("code") or (body.get("error") or {}).get("code")
+    text = str(exc).lower()
+    return code == "tool_use_failed" or "tool call validation failed" in text
+
+
 @dataclass
 class Usage:
     prompt_tokens: int = 0
@@ -77,6 +93,19 @@ class OpenAIChatClient:
         )
 
     async def stream(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> AsyncIterator[TextDelta | LLMResponse]:
+        from openai import APIError
+
+        try:
+            async for item in self._stream(messages, tools):
+                yield item
+        except APIError as exc:
+            if _is_tool_call_rejection(exc):
+                raise ToolCallRejected(str(exc)) from exc
+            raise
+
+    async def _stream(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
     ) -> AsyncIterator[TextDelta | LLMResponse]:
         kwargs: dict[str, Any] = {
