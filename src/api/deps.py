@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from ..agent.agent import FinanceAgent
 from ..config import Settings
+from ..services.analytics import AnalyticsService
 from ..services.auth_service import AuthService
 from ..services.budgets import BudgetService
 from ..services.conversation_store import ConversationStore
@@ -39,6 +40,10 @@ def get_actions(request: Request) -> PendingActionService:
     if request.app.state.actions is None:
         raise HTTPException(status_code=404, detail="Write confirmation is disabled")
     return request.app.state.actions
+
+
+def get_analytics(request: Request) -> AnalyticsService:
+    return request.app.state.analytics
 
 
 def get_budgets(request: Request) -> BudgetService:
