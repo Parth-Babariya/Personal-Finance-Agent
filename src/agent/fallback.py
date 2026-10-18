@@ -136,6 +136,10 @@ class KeywordFallbackPlanner:
             b = parsed.periods[1] if len(parsed.periods) > 1 else ("last_month" if a != "last_month" else "this_month")
             return [("compare_periods", _with({"period_a": a, "period_b": b}, category=category))]
 
+        feature = self._feature_plan(text, period, category)
+        if feature:
+            return feature
+
         if re.search(r"\b(top|biggest|largest|highest|most expensive|big)\b", text):
             return [("get_top_expenses", _with({"period": period or "this_month"}, category=category))]
 
@@ -152,6 +156,27 @@ class KeywordFallbackPlanner:
         if category is None:
             plan.append(("get_insights", {"period": period or "this_month"}))
         return plan
+
+    def _feature_plan(
+        self, text: str, period: str | None, category: str | None
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Budgets, analytics and goals; only planned when the tool is registered."""
+        asks_amount = re.search(r"\b(how much|spend|spent|spending)\b", text)
+        candidates: list[tuple[bool, str, dict[str, Any]]] = [
+            (bool(re.search(r"\bbudgets?\b", text)), "check_budget", _with({}, category=category)),
+            (bool(re.search(r"\b(recurring|regular payments|regular bills|bills)\b", text)
+                  or (re.search(r"\bsubscriptions?\b", text) and not asks_amount)),
+             "find_recurring_payments", {}),
+            (bool(re.search(r"\b(unusual|suspicious|anomal\w*|strange|odd|out of the ordinary)\b", text)),
+             "find_unusual_spending", {"period": period or "last_30_days"}),
+            (bool(re.search(r"\b(trend|trends|over time|month by month|each month|monthly|lately)\b", text)),
+             "get_monthly_trend", _with({"months": 6}, category=category)),
+            (bool(re.search(r"\b(goal|goals|saving for|save for)\b", text)), "get_savings_goals", {}),
+        ]
+        for matched, name, args in candidates:
+            if matched and self._registry.get(name) is not None:
+                return [(name, args)]
+        return []
 
     async def respond(
         self, message: str, ctx: ToolContext, history: list[dict[str, Any]] | None = None
@@ -212,6 +237,49 @@ class KeywordFallbackPlanner:
             if r.get("status") == "pending_confirmation":
                 return f"I'll record an {what}.{dup} Reply 'yes' to confirm or 'no' to cancel."
             return f"Recorded {what}.{dup}"
+        if o.name == "check_budget":
+            if not r["budgets"]:
+                return r["note"] + " You can set one in the Budgets view."
+            lines = []
+            for b in r["budgets"]:
+                line = (f"- {b['category']}: {self._m(b['spent'])} of {self._m(b['limit'])} "
+                        f"({b['used_pct']:.0f}%, {b['state']})")
+                if b.get("projected_state") == "over" and b["state"] != "over":
+                    line += f"; on pace for {self._m(b['projected_month_end'])} by month end"
+                lines.append(line)
+            return f"Budgets for {r['budgets'][0]['month']}:\n" + "\n".join(lines)
+        if o.name == "get_monthly_trend":
+            months = ", ".join(f"{m['month']} {self._m(m['expense'])}" + (" (so far)" if m["partial"] else "")
+                               for m in r["months"])
+            scope = f" on {r['category']}" if r.get("category") else ""
+            avg = r["average_monthly_expense"]
+            return f"Monthly spending{scope}: {months}." + (f" Average: {self._m(avg)}." if avg is not None else "")
+        if o.name == "find_unusual_spending":
+            if not r["unusual"]:
+                return f"Nothing unusual ({r['period']})."
+            body = "\n".join(f"- {t['date']}: {self._m(t['amount'])} · {t['description'] or t['category']} "
+                             f"({t['reason']})" for t in r["unusual"])
+            return f"Unusual expenses ({r['period']}):\n{body}"
+        if o.name == "find_recurring_payments":
+            if not r["recurring"]:
+                return "I didn't find any recurring payments yet (needs at least 3 months of history)."
+            body = "\n".join(f"- {g['description']}: {self._m(g['typical_amount'])}/month, next around "
+                             f"{g['next_expected']}" for g in r["recurring"])
+            return f"Recurring payments (about {self._m(r['estimated_monthly_total'])}/month):\n{body}"
+        if o.name == "get_savings_goals":
+            if not r["goals"]:
+                return r["note"]
+            lines = []
+            for g in r["goals"]:
+                line = f"- {g['name']}: {self._m(g['saved_amount'])} of {self._m(g['target_amount'])} " \
+                       f"({g['progress_pct']:.0f}%)"
+                if g["completed"]:
+                    line += ", completed"
+                elif g["required_per_month"] is not None:
+                    status = "on track" if g["on_track"] else "behind"
+                    line += f", needs {self._m(g['required_per_month'])}/month, {status}"
+                lines.append(line)
+            return "Savings goals:\n" + "\n".join(lines)
         return ""
 
 
