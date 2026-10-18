@@ -269,8 +269,9 @@ class GetInsights(Tool):
 class AddTransaction(Tool):
     name = "add_transaction"
     description = (
-        "Propose recording a new expense or income. Only call when the user clearly states an amount "
-        "they spent or received. The transaction is NOT saved until the user confirms it."
+        "Propose recording a new expense or income. Call it directly when the user states an amount they "
+        "spent or received; it does not save anything. The app asks the user to confirm, and the result "
+        "lists possible duplicates, so do not ask first or search for duplicates yourself."
     )
     Args = AddTransactionArgs
     mutates = True

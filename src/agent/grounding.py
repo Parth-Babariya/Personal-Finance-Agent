@@ -56,6 +56,8 @@ def _numbers_in(obj: Any) -> list[float]:
         return []
     if isinstance(obj, int | float):
         return [float(obj)]
+    if isinstance(obj, str):  # e.g. insight sentences and anomaly reasons quote amounts
+        return [float(n.replace(",", "")) for n in _ANY_NUMBER.findall(obj)]
     if isinstance(obj, dict):
         return [n for v in obj.values() for n in _numbers_in(v)]
     if isinstance(obj, list | tuple):

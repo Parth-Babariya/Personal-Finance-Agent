@@ -76,3 +76,9 @@ async def test_grounded_reply_is_not_retried(registry, conversations, seeded):
     result = await make_agent(registry, conversations, llm).respond("food?", seeded)
     assert result.grounding == {"checked": 1, "verified": True, "unverified": [], "retried": False}
     assert len(llm.requests) == 2
+
+
+def test_numbers_quoted_inside_tool_text_are_grounded():
+    insights = {"insights": ["Your highest spending category is 'shopping' at ₹6,042.00 (36% of expenses)."]}
+    unusual = {"unusual": [{"amount": 12000.0, "reason": "4.4x your typical shopping expense (median 2,700.00)"}]}
+    assert check_grounding("Shopping ₹6,042; median ₹2,700.", [insights, unusual], [], "₹").verified
