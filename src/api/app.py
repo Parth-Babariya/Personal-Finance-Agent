@@ -20,6 +20,7 @@ from ..services.auth_service import AuthService
 from ..services.conversation_store import ConversationStore
 from ..services.db import init_db, make_engine, make_session_factory
 from ..services.insight_generator import SimpleInsightGenerator
+from ..services.pending_actions import PendingActionService
 from ..services.sql_transaction_service import SQLTransactionService
 from .routes import api_router
 
@@ -59,17 +60,20 @@ def create_app(
     tx_service = SQLTransactionService(session_factory, today=today)
     conversations = ConversationStore(session_factory)
     insight_gen = SimpleInsightGenerator(settings.currency_symbol)
-    registry = ToolRegistry.default(tx_service, insight_gen)
+    actions = PendingActionService(session_factory, tx_service) if settings.require_write_confirmation else None
+    registry = ToolRegistry.default(tx_service, insight_gen, actions)
     llm_client = build_llm(settings) if llm is _UNSET else llm
 
     app.state.settings = settings
     app.state.tx_service = tx_service
     app.state.auth_service = AuthService(session_factory)
     app.state.conversations = conversations
+    app.state.actions = actions
     app.state.agent = FinanceAgent(
         registry,
         conversations,
         llm_client,  # type: ignore[arg-type]
+        actions=actions,
         currency=settings.currency_symbol,
         max_steps=settings.agent_max_steps,
         history_limit=settings.chat_history_limit,

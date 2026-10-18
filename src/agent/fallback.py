@@ -206,8 +206,12 @@ class KeywordFallbackPlanner:
         if o.name == "get_insights":
             return "\n".join(f"- {i}" for i in r["insights"])
         if o.name == "add_transaction":
-            t = r["added"]
-            return f"Recorded {t['type']} of {self._m(t['amount'])} in '{t['category']}' on {t['date']}."
+            t = r.get("transaction") or r["added"]
+            what = f"{t['type']} of {self._m(t['amount'])} in '{t['category']}' on {t['date']}"
+            dup = " Note: a matching transaction already exists that day." if r.get("possible_duplicates") else ""
+            if r.get("status") == "pending_confirmation":
+                return f"I'll record an {what}.{dup} Reply 'yes' to confirm or 'no' to cancel."
+            return f"Recorded {what}.{dup}"
         return ""
 
 

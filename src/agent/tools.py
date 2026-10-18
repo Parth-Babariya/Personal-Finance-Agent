@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from ..interfaces.insight_generator import IInsightGenerator
 from ..interfaces.transaction_service import ITransactionService
 from ..services.models import CATEGORIES
+from ..services.pending_actions import PendingActionService
 from ..services.periods import Period, describe_range, resolve_period
 
 logger = logging.getLogger(__name__)
@@ -116,9 +117,15 @@ class Tool(ABC):
     Args: ClassVar[type[BaseModel]]
     mutates: ClassVar[bool] = False
 
-    def __init__(self, tx: ITransactionService, insights: IInsightGenerator):
+    def __init__(
+        self,
+        tx: ITransactionService,
+        insights: IInsightGenerator,
+        actions: PendingActionService | None = None,
+    ):
         self._tx = tx
         self._insights = insights
+        self._actions = actions
 
     @abstractmethod
     def run(self, args: Any, ctx: ToolContext) -> dict[str, Any]:
@@ -231,18 +238,40 @@ class GetInsights(Tool):
 class AddTransaction(Tool):
     name = "add_transaction"
     description = (
-        "Record a new expense or income for the user. Only call when the user clearly "
-        "states an amount they spent or received."
+        "Propose recording a new expense or income. Only call when the user clearly states an amount "
+        "they spent or received. The transaction is NOT saved until the user confirms it."
     )
     Args = AddTransactionArgs
     mutates = True
 
     def run(self, args: AddTransactionArgs, ctx: ToolContext) -> dict[str, Any]:
-        if args.date and args.date > ctx.today:
+        when = args.date or ctx.today
+        if when > ctx.today:
             raise ValueError("Transaction date cannot be in the future")
-        data = args.model_dump()
-        data["date"] = args.date or ctx.today
-        return {"added": self._tx.add_transaction(data, ctx.user_id)}
+        payload = {**args.model_dump(), "date": when.isoformat()}
+        duplicates = [
+            _compact(t)
+            for t in self._tx.list_transactions(
+                ctx.user_id, start=when, end=when, category=args.category,
+                min_amount=args.amount, max_amount=args.amount,
+            )
+        ]
+
+        if self._actions is None:  # confirmation disabled: write immediately
+            added = self._tx.add_transaction({**payload, "date": when}, ctx.user_id)
+            return {"status": "saved", "added": added, "possible_duplicates": duplicates}
+
+        action = self._actions.propose(ctx.user_id, "add_transaction", payload)
+        return {
+            "status": "pending_confirmation",
+            "action_id": action["id"],
+            "transaction": payload,
+            "possible_duplicates": duplicates,
+            "instructions": (
+                "Not saved yet. Tell the user exactly what will be recorded and ask them to confirm "
+                "(reply 'yes' or press Confirm). Mention possible duplicates if any."
+            ),
+        }
 
 
 def _compact(t: dict[str, Any]) -> dict[str, Any]:
@@ -266,8 +295,13 @@ class ToolRegistry:
         self._tools = {tool.name: tool for tool in tools}
 
     @classmethod
-    def default(cls, tx: ITransactionService, insights: IInsightGenerator) -> ToolRegistry:
-        return cls([tool_cls(tx, insights) for tool_cls in DEFAULT_TOOLS])
+    def default(
+        cls,
+        tx: ITransactionService,
+        insights: IInsightGenerator,
+        actions: PendingActionService | None = None,
+    ) -> ToolRegistry:
+        return cls([tool_cls(tx, insights, actions) for tool_cls in DEFAULT_TOOLS])
 
     @property
     def names(self) -> list[str]:

@@ -38,6 +38,7 @@ class Settings:
     chat_history_limit: int = 10
     max_message_chars: int = 2000
     agent_timeout_seconds: float = 45.0
+    require_write_confirmation: bool = True
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -63,4 +64,5 @@ class Settings:
             agent_max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
             chat_history_limit=int(os.getenv("CHAT_HISTORY_LIMIT", "10")),
             agent_timeout_seconds=float(os.getenv("AGENT_TIMEOUT_SECONDS", "45")),
+            require_write_confirmation=_env_bool("REQUIRE_WRITE_CONFIRMATION", True),
         )

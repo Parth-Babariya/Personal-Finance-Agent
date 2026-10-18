@@ -9,6 +9,7 @@ from ..agent.agent import FinanceAgent
 from ..config import Settings
 from ..services.auth_service import AuthService
 from ..services.conversation_store import ConversationStore
+from ..services.pending_actions import PendingActionService
 from ..services.security import decode_access_token
 from ..services.sql_transaction_service import SQLTransactionService
 
@@ -29,6 +30,12 @@ def get_auth_service(request: Request) -> AuthService:
 
 def get_conversations(request: Request) -> ConversationStore:
     return request.app.state.conversations
+
+
+def get_actions(request: Request) -> PendingActionService:
+    if request.app.state.actions is None:
+        raise HTTPException(status_code=404, detail="Write confirmation is disabled")
+    return request.app.state.actions
 
 
 def get_agent(request: Request) -> FinanceAgent:

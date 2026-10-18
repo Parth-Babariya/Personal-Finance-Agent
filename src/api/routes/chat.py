@@ -30,6 +30,9 @@ async def chat(
         "tool_calls": result.tool_calls,
         "steps": result.steps,
         "latency_ms": result.latency_ms,
+        "fallback_reason": result.fallback_reason,
+        "redacted": result.redacted,
+        "pending_actions": result.pending_actions,
     }
 
 

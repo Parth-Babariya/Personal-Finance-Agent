@@ -72,12 +72,32 @@ class ToolCallInfo(BaseModel):
     ok: bool
 
 
+class PendingActionInfo(BaseModel):
+    id: str
+    kind: str
+    payload: dict[str, Any]
+    possible_duplicates: list[dict[str, Any]] = []
+
+
 class ChatResponse(BaseModel):
     reply: str
-    mode: Literal["llm", "fallback"]
+    mode: Literal["llm", "fallback", "action"]
     tool_calls: list[ToolCallInfo]
     steps: int
     latency_ms: float
+    fallback_reason: str | None = None
+    redacted: list[str] = []
+    pending_actions: list[PendingActionInfo] = []
+
+
+class ActionResponse(BaseModel):
+    id: str
+    kind: str
+    payload: dict[str, Any]
+    status: str
+    created_at: str
+    expires_at: str
+    result: dict[str, Any] | None = None
 
 
 class ChatMessageResponse(BaseModel):
