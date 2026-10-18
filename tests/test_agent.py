@@ -148,3 +148,8 @@ async def test_fallback_reasons(registry, conversations, seeded):
     assert broken.fallback_reason == "llm_error"
     ok = await make_agent(registry, conversations, FakeLLM([text("hi")])).respond("hello", seeded)
     assert ok.mode == "llm" and ok.fallback_reason is None
+
+
+async def test_done_event_returns_masked_user_message(registry, conversations, seeded):
+    events = [e async for e in make_agent(registry, conversations, None).stream("PAN ABCDE1234F spend?", seeded)]
+    assert events[-1]["user_message"] == "PAN [PAN] spend?"

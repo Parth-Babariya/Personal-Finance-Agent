@@ -194,6 +194,7 @@ class FinanceAgent:
         yield {
             "type": "done",
             "reply": state.reply,
+            "user_message": message,  # as stored, after masking
             "mode": mode,
             "tool_calls": records,
             "steps": state.steps,

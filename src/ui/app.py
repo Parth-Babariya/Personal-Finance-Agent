@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
 from datetime import date
 from typing import Any
 
@@ -40,6 +39,7 @@ if "token" not in st.session_state:
     st.session_state.token = None
     st.session_state.username = None
     st.session_state.messages = []
+    st.session_state.pending = []
 
 
 # --- API helpers ---
@@ -75,35 +75,68 @@ def authenticate(action: str, username: str, password: str) -> None:
         st.session_state.username = username
         history = api("GET", "/chat/history")
         st.session_state.messages = history.json() if history.is_success else []
+        pending = api("GET", "/actions")
+        st.session_state.pending = pending.json() if pending.is_success else []
         st.rerun()
     else:
         st.error(error_detail(resp))
 
 
-def stream_reply(message: str, steps: Any) -> Iterator[str]:
-    """Yield answer tokens from the SSE endpoint; show tool calls as timeline steps."""
+FALLBACK_NOTES = {
+    "llm_error": "AI model unavailable, answered with the basic planner",
+    "timeout": "AI model timed out, answered with the basic planner",
+    "budget": "Daily AI usage limit reached, answered with the basic planner",
+}
+
+
+def stream_reply(message: str, steps: Any, placeholder: Any) -> tuple[str, dict[str, Any] | None]:
+    """Render SSE events live: tool calls as timeline steps, tokens into ``placeholder``.
+
+    Uses a placeholder instead of st.write_stream because the server may send a
+    ``reset`` event (grounding retry) that replaces text already shown.
+    """
+    text, done = "", None
     with httpx.stream(
         "POST", f"{API_BASE}/chat/stream", json={"message": message},
         headers={"Authorization": f"Bearer {st.session_state.token}"}, timeout=120.0,
     ) as resp:
         if not resp.is_success:
             resp.read()
-            yield f"Error: {error_detail(resp)}"
-            return
+            text = f"Error: {error_detail(resp)}"
+            placeholder.warning(text)
+            return text, None
         for line in resp.iter_lines():
             if not line.startswith("data: "):
                 continue
             event = json.loads(line[6:])
             if event["type"] == "token":
-                yield event["text"]
+                text += event["text"]
+                placeholder.markdown(text + "▌")
+            elif event["type"] == "reset":
+                text = ""
+                placeholder.empty()
             elif event["type"] == "tool_call":
                 with steps:
                     with st.status(f"`{event['name']}`", type="step", state="complete"):
                         st.json(event["arguments"], expanded=False)
             elif event["type"] == "done":
-                st.session_state.last_done = event
+                done = event
             elif event["type"] == "error":
-                yield f"\n\nError: {event['detail']}"
+                text += f"\n\nError: {event['detail']}"
+    placeholder.markdown(text)
+    return text, done
+
+
+def resolve_action(action: dict[str, Any], verb: str) -> None:
+    resp = api("POST", f"/actions/{action['id']}/{verb}")
+    t = action["payload"]
+    what = f"{t['type']} of {money(t['amount'])} in '{t['category']}' on {t['date']}"
+    if resp.is_success:
+        content = f"Saved the {what}." if verb == "confirm" else f"Okay, discarded the {what}."
+        st.session_state.messages.append({"role": "assistant", "content": content, "meta": {}})
+    else:
+        st.toast(error_detail(resp), icon=":material/error:")
+    st.session_state.pending = [a for a in st.session_state.pending if a["id"] != action["id"]]
 
 
 # --- login gate ---
@@ -160,15 +193,35 @@ if view == "Chat":
             st.markdown(prompt)
         with st.chat_message("assistant"):
             steps = st.container()
-            reply = st.write_stream(stream_reply(prompt, steps))
-            done = st.session_state.pop("last_done", None)
+            reply, done = stream_reply(prompt, steps, st.empty())
             if done:
-                st.caption(f"{done['mode']} · {done['latency_ms']:.0f} ms")
+                notes = [f"{done['mode']} · {done['latency_ms']:.0f} ms"]
+                if done.get("fallback_reason") in FALLBACK_NOTES:
+                    notes.append(FALLBACK_NOTES[done["fallback_reason"]])
+                if done.get("redacted"):
+                    notes.append("masked: " + ", ".join(done["redacted"]))
+                st.caption(" · ".join(notes))
         st.session_state.messages += [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": reply if isinstance(reply, str) else "".join(reply),
+            {"role": "user", "content": (done or {}).get("user_message", prompt)},
+            {"role": "assistant", "content": reply,
              "meta": {"tools": [t["name"] for t in (done or {}).get("tool_calls", [])]}},
         ]
+        st.session_state.pending = (done or {}).get("pending_actions") or (
+            [] if (done or {}).get("mode") == "action" else st.session_state.pending
+        )
+
+    for action in st.session_state.pending:
+        t = action["payload"]
+        with st.container(border=True):
+            st.markdown(f"**Record {t['type']}?** {money(t['amount'])} · {t['category']} · {t['date']}"
+                        + (f" · {t['description']}" if t.get("description") else ""))
+            if action.get("possible_duplicates"):
+                st.caption("A transaction with the same amount, category and date already exists.")
+            with st.container(horizontal=True):
+                st.button("Confirm", key=f"confirm_{action['id']}", type="primary", icon=":material/check:",
+                          on_click=resolve_action, args=(action, "confirm"))
+                st.button("Cancel", key=f"cancel_{action['id']}", icon=":material/close:",
+                          on_click=resolve_action, args=(action, "cancel"))
 
 
 # --- transactions ---
