@@ -2,33 +2,33 @@
 
 from __future__ import annotations
 
-import os
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
-from jose import jwt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-secret-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
 
 def hash_password(password: str) -> str:
-    """Hash plain text password."""
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
-    """Validate plain text password against hash."""
     return pwd_context.verify(plain_password, password_hash)
 
 
-def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
-    """Create a signed JWT access token for the provided subject."""
-    minutes = expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES
-    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    payload: dict[str, Any] = {"sub": subject, "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+def create_access_token(subject: str, secret_key: str, expires_minutes: int = 60) -> str:
+    expire = datetime.now(UTC) + timedelta(minutes=expires_minutes)
+    return jwt.encode({"sub": subject, "exp": expire}, secret_key, algorithm=ALGORITHM)
+
+
+def decode_access_token(token: str, secret_key: str) -> str | None:
+    """Return the token subject, or ``None`` if the token is invalid or expired."""
+    try:
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+    subject = payload.get("sub")
+    return subject if isinstance(subject, str) else None
