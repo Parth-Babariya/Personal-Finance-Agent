@@ -32,6 +32,7 @@ from src.services.conversation_store import ConversationStore
 from src.services.db import init_db, make_engine, make_session_factory
 from src.services.insight_generator import SimpleInsightGenerator
 from src.services.models import User
+from src.services.pending_actions import PendingActionService
 from src.services.sql_transaction_service import SQLTransactionService
 
 from .cases import CASES, Case
@@ -65,6 +66,7 @@ class CaseResult:
     steps: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    grounded: bool = True
     reply: str = ""
 
 
@@ -96,22 +98,28 @@ def _build(mode: str):
     seed(tx, uid, other_id)
 
     llm = _llm_client() if mode == "llm" else None
+    actions = PendingActionService(factory, tx)
+    conversations = ConversationStore(factory)
     agent = FinanceAgent(
-        ToolRegistry.default(tx, SimpleInsightGenerator("₹")),
-        ConversationStore(factory),
+        ToolRegistry.default(tx, SimpleInsightGenerator("₹"), actions),
+        conversations,
         llm,
+        actions=actions,
         currency="₹",
         today=lambda: EVAL_TODAY,
     )
-    return engine, tx, agent, uid
+    return engine, tx, agent, uid, actions, conversations
 
 
 async def run_case(case: Case, mode: str) -> CaseResult:
-    engine, tx, agent, uid = _build(mode)
+    engine, tx, agent, uid, actions, conversations = _build(mode)
     expected = case.numbers(tx, uid) if case.numbers else []  # ground truth before any writes
     for turn in case.turns[:-1]:
         await agent.respond(turn, uid)
     result = await agent.respond(case.turns[-1], uid)
+    if case.auto_confirm:  # simulate the user pressing Confirm on every proposal
+        for action in actions.list_open(uid):
+            actions.confirm(action["id"], uid)
 
     called = [c["name"] for c in result.tool_calls]
     notes: list[str] = []
@@ -125,7 +133,7 @@ async def run_case(case: Case, mode: str) -> CaseResult:
     if set(called) & case.forbid_tools:
         tools_ok = False
         notes.append(f"called forbidden {sorted(set(called) & case.forbid_tools)}")
-    if result.mode != mode:
+    if result.mode not in (mode, "action"):
         tools_ok = False
         notes.append(f"ran in {result.mode} mode (LLM unavailable)")
 
@@ -140,6 +148,14 @@ async def run_case(case: Case, mode: str) -> CaseResult:
     if leaked:
         answer_ok = False
         notes.append(f"forbidden text in reply {leaked}")
+    stored = " ".join(m["content"] for m in conversations.recent(uid, 100))
+    stored_leaks = [t for t in case.stored_forbid if t in stored]
+    if stored_leaks:
+        answer_ok = False
+        notes.append(f"sensitive text stored in history {stored_leaks}")
+    grounded = result.grounding.get("verified", True)
+    if not grounded:
+        notes.append(f"ungrounded figures {result.grounding.get('unverified')}")
     engine.dispose()
 
     return CaseResult(
@@ -156,6 +172,7 @@ async def run_case(case: Case, mode: str) -> CaseResult:
         steps=result.steps,
         prompt_tokens=result.usage.prompt_tokens,
         completion_tokens=result.usage.completion_tokens,
+        grounded=grounded,
         reply=result.reply,
     )
 
@@ -175,6 +192,7 @@ def summarize(results: list[CaseResult], model: str | None) -> dict:
         "pass_rate": sum(r.passed for r in results) / n,
         "tool_selection_accuracy": sum(r.tools_ok for r in results) / n,
         "answer_accuracy": sum(r.answer_ok for r in results) / n,
+        "grounded_rate": sum(r.grounded for r in results) / n,
         "latency_p50_ms": round(statistics.median(latencies), 1),
         "latency_p95_ms": round(_pct(latencies, 0.95), 1),
         "avg_steps": round(sum(r.steps for r in results) / n, 2),
@@ -203,6 +221,7 @@ def render_markdown(mode: str, summary: dict, results: list[CaseResult]) -> str:
         f"| Pass rate | {summary['pass_rate']:.0%} |",
         f"| Tool selection accuracy | {summary['tool_selection_accuracy']:.0%} |",
         f"| Answer correctness (numbers match DB) | {summary['answer_accuracy']:.0%} |",
+        f"| Replies passing runtime grounding check | {summary['grounded_rate']:.0%} |",
         f"| Latency p50 / p95 | {summary['latency_p50_ms']:.0f} ms / {summary['latency_p95_ms']:.0f} ms |",
         f"| Avg model calls per question | {summary['avg_steps']} |",
     ]
