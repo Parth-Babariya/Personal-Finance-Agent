@@ -12,9 +12,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ...agent.tools import Category, TxType
+from ...services.budgets import BudgetService
 from ...services.periods import describe_range, normalize_period, resolve_period
 from ...services.sql_transaction_service import SQLTransactionService
-from ..deps import get_current_user_id, get_tx_service
+from ..deps import get_budgets, get_current_user_id, get_tx_service
 from ..schemas import SummaryResponse, TransactionCreate, TransactionResponse, TransactionUpdate
 
 router = APIRouter(tags=["transactions"])
@@ -44,9 +45,13 @@ def _date_range(
 def add_transaction(
     req: TransactionCreate,
     tx_service: SQLTransactionService = Depends(get_tx_service),
+    budgets: BudgetService = Depends(get_budgets),
     user_id: str = Depends(get_current_user_id),
 ) -> Any:
-    return tx_service.add_transaction(req.model_dump(), user_id=user_id)
+    record = tx_service.add_transaction(req.model_dump(), user_id=user_id)
+    if record["type"] == "expense":
+        record["budget_alert"] = budgets.alert_for(user_id, record["category"], date.fromisoformat(record["date"]))
+    return record
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])

@@ -48,6 +48,23 @@ class TransactionResponse(BaseModel):
     category: str
     description: str
     date: dt.date
+    budget_alert: str | None = None
+
+
+class BudgetSet(BaseModel):
+    monthly_limit: float = Field(..., gt=0, le=100_000_000)
+
+
+class BudgetStatus(BaseModel):
+    category: str
+    month: str
+    limit: float
+    spent: float
+    remaining: float
+    used_pct: float
+    state: Literal["ok", "warning", "over"]
+    projected_month_end: float | None = None
+    projected_state: Literal["ok", "warning", "over"] | None = None
 
 
 class SummaryResponse(BaseModel):

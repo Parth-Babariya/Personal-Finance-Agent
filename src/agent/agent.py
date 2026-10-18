@@ -253,6 +253,9 @@ class FinanceAgent:
                 continue
             outcomes.append(ToolOutcome(f"{verb}_action", {"action_id": action["id"]}, result or {}))
             lines.append(f"Saved the {what}." if verb == "confirm" else f"Okay, discarded the {what}.")
+            alert = ((result or {}).get("result") or {}).get("budget_alert")
+            if alert:
+                lines.append(alert)
         return "\n".join(lines), outcomes
 
     async def _run_llm(

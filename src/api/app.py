@@ -18,6 +18,7 @@ from ..agent.llm import LLMClient, OpenAIChatClient
 from ..agent.tools import ToolRegistry
 from ..config import Settings
 from ..services.auth_service import AuthService
+from ..services.budgets import BudgetService
 from ..services.conversation_store import ConversationStore
 from ..services.db import init_db, make_engine, make_session_factory
 from ..services.insight_generator import SimpleInsightGenerator
@@ -78,8 +79,12 @@ def create_app(
     tx_service = SQLTransactionService(session_factory, today=today)
     conversations = ConversationStore(session_factory)
     insight_gen = SimpleInsightGenerator(settings.currency_symbol)
-    actions = PendingActionService(session_factory, tx_service) if settings.require_write_confirmation else None
-    registry = ToolRegistry.default(tx_service, insight_gen, actions)
+    budgets = BudgetService(session_factory, tx_service, today=today, currency=settings.currency_symbol)
+    actions = (
+        PendingActionService(session_factory, tx_service, budgets=budgets)
+        if settings.require_write_confirmation else None
+    )
+    registry = ToolRegistry.default(tx_service, insight_gen, actions, budgets=budgets)
     llm_client = build_llm(settings) if llm is _UNSET else llm
 
     app.state.settings = settings
@@ -87,6 +92,7 @@ def create_app(
     app.state.auth_service = AuthService(session_factory)
     app.state.conversations = conversations
     app.state.actions = actions
+    app.state.budgets = budgets
     app.state.limiters = Limiters.from_settings(settings)
     app.state.agent = FinanceAgent(
         registry,

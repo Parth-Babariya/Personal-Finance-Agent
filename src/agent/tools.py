@@ -13,7 +13,7 @@ import datetime as dt
 import json
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import date
 from typing import Any, ClassVar, Literal
 
@@ -21,13 +21,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from ..interfaces.insight_generator import IInsightGenerator
 from ..interfaces.transaction_service import ITransactionService
-from ..services.models import CATEGORIES
+from ..services.budgets import BudgetService
+from ..services.models import CATEGORIES, EXPENSE_CATEGORIES
 from ..services.pending_actions import PendingActionService
 from ..services.periods import Period, describe_range, resolve_period
 
 logger = logging.getLogger(__name__)
 
 Category = Literal[CATEGORIES]  # type: ignore[valid-type]
+ExpenseCategory = Literal[EXPENSE_CATEGORIES]  # type: ignore[valid-type]
 TxType = Literal["expense", "income"]
 
 
@@ -35,6 +37,16 @@ TxType = Literal["expense", "income"]
 class ToolContext:
     user_id: str
     today: date
+
+
+@dataclass
+class ToolDeps:
+    """Services tools can use. Optional ones enable extra tools when provided."""
+
+    tx: ITransactionService
+    insights: IInsightGenerator
+    actions: PendingActionService | None = None
+    budgets: BudgetService | None = None
 
 
 @dataclass
@@ -100,6 +112,11 @@ class TopExpensesArgs(RangeArgs):
     limit: int = Field(default=5, ge=1, le=20)
 
 
+class BudgetArgs(_Args):
+    category: ExpenseCategory | None = Field(default=None, description="Omit to check every budget.")
+    month: Literal["this_month", "last_month"] = "this_month"
+
+
 class AddTransactionArgs(_Args):
     amount: float = Field(gt=0, le=10_000_000)
     type: TxType = "expense"
@@ -116,16 +133,13 @@ class Tool(ABC):
     description: ClassVar[str]
     Args: ClassVar[type[BaseModel]]
     mutates: ClassVar[bool] = False
+    requires: ClassVar[tuple[str, ...]] = ()  # optional ToolDeps fields this tool needs
 
-    def __init__(
-        self,
-        tx: ITransactionService,
-        insights: IInsightGenerator,
-        actions: PendingActionService | None = None,
-    ):
-        self._tx = tx
-        self._insights = insights
-        self._actions = actions
+    def __init__(self, deps: ToolDeps):
+        self._deps = deps
+        self._tx = deps.tx
+        self._insights = deps.insights
+        self._actions = deps.actions
 
     @abstractmethod
     def run(self, args: Any, ctx: ToolContext) -> dict[str, Any]:
@@ -257,9 +271,14 @@ class AddTransaction(Tool):
             )
         ]
 
+        budgets = self._deps.budgets
+        impact = None
+        if budgets is not None and args.type == "expense":
+            impact = budgets.impact(ctx.user_id, args.category, args.amount, when)
+
         if self._actions is None:  # confirmation disabled: write immediately
             added = self._tx.add_transaction({**payload, "date": when}, ctx.user_id)
-            return {"status": "saved", "added": added, "possible_duplicates": duplicates}
+            return {"status": "saved", "added": added, "possible_duplicates": duplicates, "budget_impact": impact}
 
         action = self._actions.propose(ctx.user_id, "add_transaction", payload)
         return {
@@ -267,11 +286,31 @@ class AddTransaction(Tool):
             "action_id": action["id"],
             "transaction": payload,
             "possible_duplicates": duplicates,
+            "budget_impact": impact,
             "instructions": (
                 "Not saved yet. Tell the user exactly what will be recorded and ask them to confirm "
-                "(reply 'yes' or press Confirm). Mention possible duplicates if any."
+                "(reply 'yes' or press Confirm). Mention possible duplicates, and warn if budget_impact "
+                "shows the budget would reach its warning level or be exceeded."
             ),
         }
+
+
+class CheckBudget(Tool):
+    name = "check_budget"
+    description = (
+        "Monthly budget usage per category: limit, spent, remaining, percent used, state "
+        "(ok/warning/over) and projected month-end spend. Use for 'am I within budget' questions."
+    )
+    Args = BudgetArgs
+    requires = ("budgets",)
+
+    def run(self, args: BudgetArgs, ctx: ToolContext) -> dict[str, Any]:
+        start, _ = resolve_period(args.month, ctx.today)
+        budgets = self._deps.budgets.status(ctx.user_id, args.category, month=start)
+        if not budgets:
+            scope = f"for {args.category}" if args.category else "at all"
+            return {"budgets": [], "note": f"The user has not set a budget {scope}."}
+        return {"budgets": budgets}
 
 
 def _compact(t: dict[str, Any]) -> dict[str, Any]:
@@ -285,6 +324,7 @@ DEFAULT_TOOLS: tuple[type[Tool], ...] = (
     GetTopExpenses,
     GetInsights,
     AddTransaction,
+    CheckBudget,
 )
 
 
@@ -300,8 +340,18 @@ class ToolRegistry:
         tx: ITransactionService,
         insights: IInsightGenerator,
         actions: PendingActionService | None = None,
+        **services: Any,
     ) -> ToolRegistry:
-        return cls([tool_cls(tx, insights, actions) for tool_cls in DEFAULT_TOOLS])
+        """Build every tool whose required services are available."""
+        known = {f.name for f in fields(ToolDeps)}
+        unknown = set(services) - known
+        if unknown:
+            raise TypeError(f"Unknown services: {sorted(unknown)}")
+        deps = ToolDeps(tx, insights, actions, **services)
+        return cls([
+            tool_cls(deps) for tool_cls in DEFAULT_TOOLS
+            if all(getattr(deps, name) is not None for name in tool_cls.requires)
+        ])
 
     @property
     def names(self) -> list[str]:

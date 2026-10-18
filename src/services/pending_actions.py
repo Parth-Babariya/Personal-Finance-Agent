@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from ..interfaces.transaction_service import ITransactionService
+from .budgets import BudgetService
 from .models import PendingAction
 
 
@@ -41,9 +42,11 @@ class PendingActionService:
         tx_service: ITransactionService,
         ttl_minutes: int = 15,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        budgets: BudgetService | None = None,
     ):
         self._session_factory = session_factory
         self._tx = tx_service
+        self._budgets = budgets
         self._ttl = timedelta(minutes=ttl_minutes)
         self._now = now
 
@@ -110,5 +113,9 @@ class PendingActionService:
     def _execute(self, kind: str, payload: dict[str, Any], user_id: str) -> dict[str, Any]:
         if kind == "add_transaction":
             data = {**payload, "date": date.fromisoformat(payload["date"])}
-            return {"added": self._tx.add_transaction(data, user_id)}
+            added = self._tx.add_transaction(data, user_id)
+            alert = None
+            if self._budgets is not None and added["type"] == "expense":
+                alert = self._budgets.alert_for(user_id, added["category"], data["date"])
+            return {"added": added, "budget_alert": alert}
         raise ActionError(f"Unknown action kind '{kind}'")
