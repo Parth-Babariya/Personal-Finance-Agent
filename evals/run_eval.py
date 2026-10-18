@@ -28,15 +28,18 @@ from pathlib import Path
 from src.agent.agent import FinanceAgent
 from src.agent.llm import OpenAIChatClient
 from src.agent.tools import ToolRegistry
+from src.services.analytics import AnalyticsService
+from src.services.budgets import BudgetService
 from src.services.conversation_store import ConversationStore
 from src.services.db import init_db, make_engine, make_session_factory
+from src.services.goals import GoalService
 from src.services.insight_generator import SimpleInsightGenerator
 from src.services.models import User
 from src.services.pending_actions import PendingActionService
 from src.services.sql_transaction_service import SQLTransactionService
 
 from .cases import CASES, Case
-from .dataset import EVAL_TODAY, seed
+from .dataset import EVAL_TODAY, seed, seed_plans
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -98,10 +101,18 @@ def _build(mode: str):
     seed(tx, uid, other_id)
 
     llm = _llm_client() if mode == "llm" else None
-    actions = PendingActionService(factory, tx)
+    today = lambda: EVAL_TODAY  # noqa: E731
+    budgets = BudgetService(factory, tx, today=today)
+    goals = GoalService(factory, tx, today=today)
+    seed_plans(budgets, goals, uid)
+    actions = PendingActionService(factory, tx, budgets=budgets)
     conversations = ConversationStore(factory)
+    registry = ToolRegistry.default(
+        tx, SimpleInsightGenerator("₹"), actions,
+        budgets=budgets, analytics=AnalyticsService(tx, today=today), goals=goals,
+    )
     agent = FinanceAgent(
-        ToolRegistry.default(tx, SimpleInsightGenerator("₹"), actions),
+        registry,
         conversations,
         llm,
         actions=actions,
