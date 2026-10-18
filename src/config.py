@@ -37,6 +37,7 @@ class Settings:
     agent_max_steps: int = 5
     chat_history_limit: int = 10
     max_message_chars: int = 2000
+    agent_timeout_seconds: float = 45.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -61,4 +62,5 @@ class Settings:
             currency_symbol=os.getenv("CURRENCY_SYMBOL", cls.currency_symbol),
             agent_max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
             chat_history_limit=int(os.getenv("CHAT_HISTORY_LIMIT", "10")),
+            agent_timeout_seconds=float(os.getenv("AGENT_TIMEOUT_SECONDS", "45")),
         )

@@ -131,3 +131,20 @@ async def test_sensitive_data_is_masked_before_llm_and_storage(registry, convers
     for leaked in ("4111 1111 1111 1111", "ABCDE1234F"):
         assert leaked not in sent and leaked not in stored
     assert result.redacted == ["card", "pan"]
+
+
+async def test_slow_llm_times_out_into_fallback(registry, conversations, seeded):
+    llm = FakeLLM([text("too late")], delay=1.0)
+    agent = make_agent(registry, conversations, llm, timeout_seconds=0.05)
+    result = await agent.respond("How much did I spend on food last month?", seeded)
+    assert result.mode == "fallback" and result.fallback_reason == "timeout"
+    assert "₹800.00" in result.reply
+
+
+async def test_fallback_reasons(registry, conversations, seeded):
+    no_llm = await make_agent(registry, conversations, None).respond("spending this month", seeded)
+    assert no_llm.fallback_reason == "no_llm"
+    broken = await make_agent(registry, conversations, FakeLLM([RuntimeError("down")])).respond("spending", seeded)
+    assert broken.fallback_reason == "llm_error"
+    ok = await make_agent(registry, conversations, FakeLLM([text("hi")])).respond("hello", seeded)
+    assert ok.mode == "llm" and ok.fallback_reason is None

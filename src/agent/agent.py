@@ -28,6 +28,7 @@ from .tools import ToolContext, ToolOutcome, ToolRegistry
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS_PER_STEP = 6
+INTERRUPTED_NOTE = "\n\n(The response was interrupted. Please try again.)"
 
 
 @dataclass
@@ -39,6 +40,7 @@ class AgentResult:
     usage: Usage = field(default_factory=Usage)
     latency_ms: float = 0.0
     redacted: list[str] = field(default_factory=list)
+    fallback_reason: str | None = None  # "no_llm" | "llm_error" | "timeout"
 
 
 @dataclass
@@ -61,6 +63,7 @@ class FinanceAgent:
         max_steps: int = 5,
         history_limit: int = 10,
         max_message_chars: int = 2000,
+        timeout_seconds: float = 45.0,
         today: Callable[[], date] = date.today,
     ) -> None:
         self._registry = registry
@@ -70,6 +73,7 @@ class FinanceAgent:
         self._max_steps = max_steps
         self._history_limit = history_limit
         self._max_message_chars = max_message_chars
+        self._timeout = timeout_seconds
         self._today = today
         self._fallback = KeywordFallbackPlanner(registry, currency)
 
@@ -91,6 +95,7 @@ class FinanceAgent:
             usage=Usage(**done["usage"]),
             latency_ms=done["latency_ms"],
             redacted=done["redacted"],
+            fallback_reason=done["fallback_reason"],
         )
 
     async def stream(self, message: str, user_id: str) -> AsyncIterator[dict[str, Any]]:
@@ -106,20 +111,20 @@ class FinanceAgent:
         ctx = ToolContext(user_id=user_id, today=self._today())
         history = await asyncio.to_thread(self._conversations.recent, user_id, self._history_limit)
         state = _RunState()
-        mode = "fallback"
+        mode, fallback_reason = "fallback", "no_llm"
 
         if self._llm is not None:
-            mode = "llm"
+            mode, fallback_reason = "llm", None
+            deadline = time.monotonic() + self._timeout
             try:
-                async for event in self._run_llm(message, history, ctx, state):
+                async for event in _with_deadline(self._run_llm(message, history, ctx, state), deadline):
                     yield event
-            except Exception:
-                logger.exception("LLM run failed")
-                wrote_data = any(
-                    o.ok and getattr(self._registry.get(o.name), "mutates", False) for o in state.outcomes
-                )
-                if state.emitted_text or wrote_data:
-                    state.reply = (state.reply + "\n\n(The response was interrupted. Please try again.)").strip()
+            except Exception as exc:
+                fallback_reason = "timeout" if isinstance(exc, TimeoutError) else "llm_error"
+                logger.warning("LLM run failed (%s)", fallback_reason, exc_info=fallback_reason == "llm_error")
+                if state.emitted_text or self._wrote_data(state):
+                    # Too late to switch: the user already saw text or data was written.
+                    state.reply = (state.reply + INTERRUPTED_NOTE).strip()
                 else:
                     mode, state = "fallback", _RunState()
 
@@ -150,7 +155,11 @@ class FinanceAgent:
             "usage": {"prompt_tokens": state.usage.prompt_tokens, "completion_tokens": state.usage.completion_tokens},
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             "redacted": masked.found,
+            "fallback_reason": fallback_reason if mode == "fallback" else None,
         }
+
+    def _wrote_data(self, state: _RunState) -> bool:
+        return any(o.ok and getattr(self._registry.get(o.name), "mutates", False) for o in state.outcomes)
 
     async def _run_llm(
         self, message: str, history: list[dict[str, Any]], ctx: ToolContext, state: _RunState
@@ -207,6 +216,23 @@ class FinanceAgent:
                     "tool_call_id": call.id,
                     "content": json.dumps(outcome.result, default=str),
                 })
+
+
+async def _with_deadline(events: AsyncIterator[Any], deadline: float) -> AsyncIterator[Any]:
+    """Re-yield ``events``, raising ``TimeoutError`` once ``deadline`` (monotonic) passes."""
+    iterator = aiter(events)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                item = await asyncio.wait_for(anext(iterator), remaining)
+            except StopAsyncIteration:
+                return
+            yield item
+    finally:
+        await iterator.aclose()
 
 
 def _safe_json(raw: str) -> Any:

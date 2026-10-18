@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import date
@@ -33,8 +34,9 @@ class FakeLLM:
 
     model = "fake-model"
 
-    def __init__(self, responses: list[LLMResponse | Exception]):
+    def __init__(self, responses: list[LLMResponse | Exception], delay: float = 0.0):
         self._responses = list(responses)
+        self._delay = delay
         self.requests: list[dict[str, Any]] = []
 
     async def stream(self, messages, tools) -> AsyncIterator[TextDelta | LLMResponse]:
@@ -42,6 +44,8 @@ class FakeLLM:
         if not self._responses:
             raise AssertionError("FakeLLM ran out of scripted responses")
         response = self._responses.pop(0)
+        if self._delay:
+            await asyncio.sleep(self._delay)
         if isinstance(response, Exception):
             raise response
         for word in response.content.split(" ") if response.content else []:

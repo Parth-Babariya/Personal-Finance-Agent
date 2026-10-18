@@ -74,6 +74,7 @@ def create_app(
         max_steps=settings.agent_max_steps,
         history_limit=settings.chat_history_limit,
         max_message_chars=settings.max_message_chars,
+        timeout_seconds=settings.agent_timeout_seconds,
         today=today,
     )
 
