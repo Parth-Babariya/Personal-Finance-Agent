@@ -156,13 +156,28 @@ and every expected number appears in the reply.
 
 ```text
 src/
-  agent/       agent.py (loop + streaming), tools.py (typed tools + registry),
-               llm.py (provider client), fallback.py (keyword planner), prompts.py
-  api/         app.py (factory), routes/ (auth, transactions, chat), schemas.py, deps.py
-  services/    SQL transaction service, conversation store, auth, periods, insights, models
-  interfaces/  abstract contracts the agent and routes depend on
-  ui/          Streamlit client
-evals/         dataset, cases with DB-derived ground truth, runner
-migrations/    Alembic
+├── agents/            # orchestration
+│   ├── finance_agent.py      tool-calling loop, streaming, deadline, grounding retry, fallback
+│   ├── fallback_planner.py   deterministic keyword planner (no LLM)
+│   └── prompts.py            system prompt and correction messages
+├── tools/             # agent-callable tools
+│   ├── base.py               Tool, ToolContext, ToolDeps, shared argument models
+│   ├── registry.py           ToolRegistry: schemas, validation, safe execution
+│   └── transactions.py, budgets.py, analytics.py, goals.py
+├── llm/               # provider client (OpenAI-compatible: OpenAI, Groq, Gemini, Ollama)
+├── guardrails/        # grounding check, PII redaction, rate limiting
+├── memory/            # per-user conversation history
+├── workflows/         # multi-step flows: approvals (human in the loop), statement import, categorisation
+├── services/          # domain logic: transactions, budgets, analytics, goals, auth, usage, insights
+├── db/                # engine/session and ORM models
+├── core/              # settings, security helpers, shared domain types
+├── interfaces/        # abstract contracts
+├── api/               # FastAPI app factory, routes, schemas, dependencies
+└── ui/                # Streamlit client
+evals/                 # synthetic dataset, cases with DB-derived ground truth, runner
+migrations/            # Alembic
 tests/
 ```
+
+Dependencies point inward: `api` → `agents` → `tools`/`guardrails`/`memory`/`workflows` → `services` → `db`/`core`.
+Nothing in `services` or `db` imports from the agent layers, so the domain logic works without any LLM.
