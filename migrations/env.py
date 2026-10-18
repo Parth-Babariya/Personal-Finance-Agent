@@ -4,6 +4,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
 
 from src.services import models  # noqa: F401  # register tables on Base.metadata
 from src.services.db import Base, make_engine
@@ -13,6 +14,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+load_dotenv()
 database_url = os.getenv("DATABASE_URL", "sqlite:///./finance_agent.db")
 
 

@@ -135,6 +135,9 @@ def __getattr__(name: str):
     # Lazily build the default app so `uvicorn src.api.app:app` works without
     # import-time side effects for tests that only need `create_app`.
     if name == "app":
+        from dotenv import load_dotenv
+
+        load_dotenv()  # pick up .env for `uvicorn src.api.app:app`; real env vars win
         global app
         app = create_app()
         return app

@@ -14,7 +14,9 @@ from typing import Any
 import httpx
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
+load_dotenv()
 API_BASE = os.getenv("API_BASE_URL", "http://localhost:8003/api/v1")
 CURRENCY = os.getenv("CURRENCY_SYMBOL", "₹")
 EXPENSE_CATEGORIES = ["food", "groceries", "transport", "shopping", "entertainment", "utilities",

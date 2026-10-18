@@ -100,13 +100,14 @@ The rate limiter is in-process; with several API replicas it should move to a sh
 ```bash
 python -m venv .venv && .venv\Scripts\activate      # source .venv/bin/activate on macOS/Linux
 pip install -r requirements-dev.txt
-copy .env.example .env                               # then edit; or export the variables
+copy .env.example .env                               # then add your key; loaded automatically
 uvicorn src.api.app:app --port 8003 --reload         # API + docs at http://localhost:8003/docs
 streamlit run src/ui/app.py                          # UI at http://localhost:8501
 ```
 
-Leave `OPENAI_API_KEY` empty to run with the keyword fallback. To use a free-tier provider instead of
-OpenAI, set `OPENAI_BASE_URL` and `OPENAI_MODEL`; examples are in [.env.example](.env.example).
+`.env.example` is set up for [Groq](https://console.groq.com/keys) (free tier, supports tool calling): paste
+your key into `OPENAI_API_KEY` in `.env`. OpenAI, Gemini and Ollama blocks are included too. Leave the key
+empty to run with the keyword fallback. Variables already set in the environment override `.env`.
 
 For production, set `APP_ENV=production` (the app then refuses to start without `JWT_SECRET_KEY`), point
 `DATABASE_URL` at Postgres, set `AUTO_CREATE_TABLES=false`, and run `alembic upgrade head`.

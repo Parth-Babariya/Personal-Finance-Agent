@@ -25,6 +25,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from src.agent.agent import FinanceAgent
 from src.agent.llm import OpenAIChatClient
 from src.agent.tools import ToolRegistry
@@ -49,6 +51,7 @@ PRICES = {
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40),
+    "llama-3.3-70b-versatile": (0.59, 0.79),  # Groq paid tier; free tier costs nothing
 }
 
 _NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
@@ -275,6 +278,7 @@ async def main() -> int:
     parser.add_argument("--write-results", action="store_true", help="Update evals/RESULTS.md")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every reply")
     args = parser.parse_args()
+    load_dotenv()
     # Agent logs full tracebacks when the LLM fails; the per-case notes are enough here.
     logging.getLogger("src.agent.agent").setLevel(logging.CRITICAL)
 
