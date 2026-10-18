@@ -119,3 +119,15 @@ async def test_stream_events_order_and_usage(registry, conversations, seeded):
 async def test_empty_message_rejected(registry, conversations, seeded):
     with pytest.raises(ValueError):
         await make_agent(registry, conversations, None).respond("   ", seeded)
+
+
+async def test_sensitive_data_is_masked_before_llm_and_storage(registry, conversations, seeded):
+    llm = FakeLLM([text("Noted.")])
+    result = await make_agent(registry, conversations, llm).respond(
+        "My card 4111 1111 1111 1111 and PAN ABCDE1234F, how much did I spend?", seeded
+    )
+    sent = llm.requests[0]["messages"][-1]["content"]
+    stored = conversations.recent(seeded)[0]["content"]
+    for leaked in ("4111 1111 1111 1111", "ABCDE1234F"):
+        assert leaked not in sent and leaked not in stored
+    assert result.redacted == ["card", "pan"]

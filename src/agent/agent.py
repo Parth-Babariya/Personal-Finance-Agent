@@ -22,6 +22,7 @@ from ..services.conversation_store import ConversationStore
 from .fallback import KeywordFallbackPlanner
 from .llm import LLMClient, LLMResponse, TextDelta, Usage
 from .prompts import TOOL_BUDGET_EXHAUSTED, build_system_prompt
+from .redaction import redact
 from .tools import ToolContext, ToolOutcome, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class AgentResult:
     steps: int = 0
     usage: Usage = field(default_factory=Usage)
     latency_ms: float = 0.0
+    redacted: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +90,7 @@ class FinanceAgent:
             steps=done["steps"],
             usage=Usage(**done["usage"]),
             latency_ms=done["latency_ms"],
+            redacted=done["redacted"],
         )
 
     async def stream(self, message: str, user_id: str) -> AsyncIterator[dict[str, Any]]:
@@ -95,7 +98,9 @@ class FinanceAgent:
         message = message.strip()
         if not message:
             raise ValueError("Message must not be empty")
-        message = message[: self._max_message_chars]
+        # Mask card numbers, Aadhaar, PAN, etc. before the LLM or the database sees them.
+        masked = redact(message[: self._max_message_chars])
+        message = masked.text
 
         started = time.perf_counter()
         ctx = ToolContext(user_id=user_id, today=self._today())
@@ -144,6 +149,7 @@ class FinanceAgent:
             "steps": state.steps,
             "usage": {"prompt_tokens": state.usage.prompt_tokens, "completion_tokens": state.usage.completion_tokens},
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "redacted": masked.found,
         }
 
     async def _run_llm(
