@@ -3,6 +3,7 @@
     python -m evals.run_eval --mode fallback        # no API key needed
     python -m evals.run_eval --mode llm             # uses OPENAI_API_KEY / OPENAI_MODEL / OPENAI_BASE_URL
     python -m evals.run_eval --mode both --case cmp_months
+    python -m evals.run_eval --mode llm --resume     # continue after a quota/rate-limit stop
 
 Each case runs against a fresh in-memory database seeded with the same
 deterministic history and a fixed "today", so results are reproducible apart
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -271,12 +273,53 @@ async def llm_preflight() -> bool:
     return True
 
 
+CHECKPOINT = ROOT / "reports" / "eval_checkpoint_llm.json"
+
+
+def _fingerprint(case_ids: list[str]) -> dict[str, object]:
+    """Identifies an llm run; resuming is only allowed when all of it matches."""
+    digest = hashlib.sha256()
+    for path in sorted([*(ROOT / "src").rglob("*.py"), *(ROOT / "evals").rglob("*.py")]):
+        digest.update(path.relative_to(ROOT).as_posix().encode())
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    return {
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "base_url": os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+        "code": digest.hexdigest()[:16],
+        "cases": case_ids,
+    }
+
+
+def _load_checkpoint(fingerprint: dict[str, object]) -> dict[str, CaseResult] | None:
+    """Completed results from an earlier run, or None if there is nothing compatible to resume."""
+    if not CHECKPOINT.exists():
+        print("No checkpoint found; starting a fresh llm run.", file=sys.stderr)
+        return {}
+    saved = json.loads(CHECKPOINT.read_text(encoding="utf-8"))
+    mismatched = [k for k in fingerprint if saved["fingerprint"].get(k) != fingerprint[k]]
+    if mismatched:
+        print(f"Checkpoint was made with a different {', '.join(mismatched)}; refusing to mix results. "
+              "Run without --resume to start over.", file=sys.stderr)
+        return None
+    return {cid: CaseResult(**r) for cid, r in saved["results"].items()}
+
+
+def _save_checkpoint(fingerprint: dict[str, object], done: dict[str, CaseResult]) -> None:
+    CHECKPOINT.write_text(
+        json.dumps({"fingerprint": fingerprint, "results": {k: asdict(v) for k, v in done.items()}},
+                   indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=["llm", "fallback", "both"], default="both")
     parser.add_argument("--case", action="append", help="Run only these case ids")
     parser.add_argument("--write-results", action="store_true", help="Update evals/RESULTS.md")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every reply")
+    parser.add_argument("--resume", action="store_true",
+                        help="Continue an llm run that stopped on a quota or rate limit")
     args = parser.parse_args()
     load_dotenv()
     # Agent logs full tracebacks when the LLM fails; the per-case notes are enough here.
@@ -294,22 +337,42 @@ async def main() -> int:
     report_dir.mkdir(exist_ok=True)
     sections = []
     for mode in modes:
-        results = []
+        done: dict[str, CaseResult] = {}
+        fingerprint = _fingerprint([c.id for c in cases]) if mode == "llm" else {}
+        if mode == "llm" and args.resume:
+            loaded = _load_checkpoint(fingerprint)
+            if loaded is None:
+                continue
+            done = loaded
+            if done:
+                print(f"Resuming: {len(done)}/{len(cases)} cases already done.", file=sys.stderr)
+
+        stopped = False
         for case in cases:
+            if case.id in done:
+                continue
             res = await run_case(case, mode)
-            results.append(res)
             mark = "PASS" if res.passed else "FAIL"
             print(f"[{mode:8}] {mark} {case.id:22} {res.latency_ms:8.0f} ms  tools={res.tools_called}"
                   + (f"  {'; '.join(res.notes)}" if res.notes else ""))
             if args.verbose or not res.passed:
                 print("           reply:", res.reply.replace("\n", " ")[:400])
             if mode == "llm" and any("LLM unavailable" in n for n in res.notes):
+                stopped = True  # this case is not recorded; it reruns on --resume
                 break
-        if mode == "llm" and any("LLM unavailable" in n for r in results for n in r.notes):
-            # Provider failed mid-run (quota, outage): a partial run would misstate the model's quality.
-            print("LLM became unavailable during the run (rate limit or outage); "
-                  "no llm results were written. Re-run later.", file=sys.stderr)
+            done[case.id] = res
+            if mode == "llm":
+                _save_checkpoint(fingerprint, done)
+
+        if stopped:
+            # A partial run would misstate the model's quality, so nothing is reported yet.
+            print(f"LLM became unavailable (rate limit or outage) after {len(done)}/{len(cases)} cases. "
+                  "Progress is saved; continue later with --resume. No llm results were written.",
+                  file=sys.stderr)
             continue
+        results = [done[c.id] for c in cases]
+        if mode == "llm":
+            CHECKPOINT.unlink(missing_ok=True)
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini") if mode == "llm" else None
         summary = summarize(results, model)
         print(json.dumps(summary, indent=2))
