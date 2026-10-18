@@ -145,7 +145,7 @@ ruff check src tests evals migrations
 python -m evals.run_eval --mode fallback     # no API key needed
 python -m evals.run_eval --mode llm -v       # real model; checks the provider responds first
 python -m evals.run_eval --mode both --write-results   # regenerate evals/RESULTS.md
-python -m evals.run_eval --mode llm --resume --write-results   # continue after a free-tier quota stop
+python -m evals.run_eval --mode both --resume --write-results  # continue after a free-tier quota stop
 ```
 
 Every eval case runs on a fresh database seeded with the same 3.5 months of synthetic transactions and a

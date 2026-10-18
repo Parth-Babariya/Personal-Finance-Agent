@@ -3,7 +3,7 @@
     python -m evals.run_eval --mode fallback        # no API key needed
     python -m evals.run_eval --mode llm             # uses OPENAI_API_KEY / OPENAI_MODEL / OPENAI_BASE_URL
     python -m evals.run_eval --mode both --case cmp_months
-    python -m evals.run_eval --mode llm --resume     # continue after a quota/rate-limit stop
+    python -m evals.run_eval --mode both --resume    # continue the llm run after a quota/rate-limit stop
 
 Each case runs against a fresh in-memory database seeded with the same
 deterministic history and a fixed "today", so results are reproducible apart
