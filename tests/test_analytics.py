@@ -4,9 +4,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from src.agent.tools import ToolContext, ToolRegistry
 from src.services.analytics import AnalyticsService, payee_key
-from src.services.insight_generator import SimpleInsightGenerator
+from src.services.insights import SimpleInsightGenerator
+from src.tools import ToolContext, ToolRegistry
 from tests.conftest import TODAY, fixed_today
 
 API = "/api/v1"

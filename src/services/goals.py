@@ -10,9 +10,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from ..interfaces.transaction_service import ITransactionService
-from .models import SavingsGoal
-from .sql_transaction_service import to_decimal
+from src.db.models import SavingsGoal
+from src.interfaces.transaction_service import ITransactionService
+from src.services.transactions import to_decimal
 
 SAVING_RATE_MONTHS = 3  # complete months used to estimate the monthly saving rate
 

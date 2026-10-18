@@ -6,11 +6,11 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from ...agent.tools import ExpenseCategory
-from ...services.budgets import BudgetService
-from ...services.periods import resolve_period
-from ..deps import get_budgets, get_current_user_id
-from ..schemas import BudgetSet, BudgetStatus
+from src.api.deps import get_budgets, get_current_user_id
+from src.api.schemas import BudgetSet, BudgetStatus
+from src.core.types import ExpenseCategory
+from src.services.budgets import BudgetService
+from src.services.periods import resolve_period
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 

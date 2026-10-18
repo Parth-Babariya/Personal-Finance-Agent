@@ -5,11 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from ...config import Settings
-from ...services.auth_service import AuthService
-from ...services.security import create_access_token
-from ..deps import get_auth_service, get_settings, rate_limit_auth, too_many_requests
-from ..schemas import TokenResponse, UserCredentials
+from src.api.deps import get_auth_service, get_settings, rate_limit_auth, too_many_requests
+from src.api.schemas import TokenResponse, UserCredentials
+from src.core.config import Settings
+from src.core.security import create_access_token
+from src.services.auth import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(rate_limit_auth)])
 

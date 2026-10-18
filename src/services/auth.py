@@ -5,8 +5,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from .models import User
-from .security import hash_password, verify_password
+from src.core.security import hash_password, verify_password
+from src.db.models import User
 
 
 class AuthService:

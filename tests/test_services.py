@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from src.services.auth_service import AuthService
-from src.services.insight_generator import SimpleInsightGenerator
+from src.services.auth import AuthService
+from src.services.insights import SimpleInsightGenerator
 
 
 class TestSQLTransactionService:

@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any
 
-from .models import CATEGORIES
+from src.core.types import CATEGORIES
 
 logger = logging.getLogger(__name__)
 

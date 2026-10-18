@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from src.services.periods import resolve_period
-from src.services.sql_transaction_service import SQLTransactionService
+from src.services.transactions import SQLTransactionService
 
 from .dataset import BUDGETS, EVAL_TODAY, GOAL
 

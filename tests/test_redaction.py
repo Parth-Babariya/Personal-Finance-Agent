@@ -1,6 +1,6 @@
 import pytest
 
-from src.agent.redaction import redact
+from src.guardrails.redaction import redact
 
 
 @pytest.mark.parametrize(

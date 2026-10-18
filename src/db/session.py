@@ -25,6 +25,6 @@ def make_session_factory(engine: Engine) -> sessionmaker:
 
 def init_db(engine: Engine) -> None:
     """Create tables if they do not exist (dev/test convenience; use Alembic in prod)."""
-    from . import models  # noqa: F401  # Ensure model metadata is registered.
+    from src.db import models  # noqa: F401  # Ensure model metadata is registered.
 
     Base.metadata.create_all(bind=engine)

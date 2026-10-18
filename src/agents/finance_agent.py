@@ -19,15 +19,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from ..services.conversation_store import ConversationStore
-from ..services.pending_actions import ActionError, PendingActionService
-from ..services.usage import UsageService
-from .fallback import KeywordFallbackPlanner
-from .grounding import GroundingReport, check_grounding
-from .llm import LLMClient, LLMResponse, TextDelta, Usage
-from .prompts import GROUNDING_RETRY, TOOL_BUDGET_EXHAUSTED, UNVERIFIED_NOTE, build_system_prompt
-from .redaction import redact
-from .tools import ToolContext, ToolOutcome, ToolRegistry
+from src.agents.fallback_planner import KeywordFallbackPlanner
+from src.agents.prompts import GROUNDING_RETRY, TOOL_BUDGET_EXHAUSTED, UNVERIFIED_NOTE, build_system_prompt
+from src.guardrails.grounding import GroundingReport, check_grounding
+from src.guardrails.redaction import redact
+from src.llm.client import LLMClient, LLMResponse, TextDelta, Usage
+from src.memory.conversation_store import ConversationStore
+from src.services.usage import UsageService
+from src.tools import ToolContext, ToolOutcome, ToolRegistry
+from src.workflows.approvals import ActionError, PendingActionService
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from src.agent.llm import LLMResponse, OpenAIChatClient, TextDelta
+from src.llm.client import LLMResponse, OpenAIChatClient, TextDelta
 
 
 def _sse(chunks: list[dict]) -> bytes:

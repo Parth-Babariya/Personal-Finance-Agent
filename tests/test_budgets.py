@@ -4,10 +4,10 @@ from datetime import date
 
 import pytest
 
-from src.agent.tools import ToolContext, ToolRegistry
 from src.services.budgets import BudgetService
-from src.services.insight_generator import SimpleInsightGenerator
-from src.services.pending_actions import PendingActionService
+from src.services.insights import SimpleInsightGenerator
+from src.tools import ToolContext, ToolRegistry
+from src.workflows.approvals import PendingActionService
 from tests.conftest import TODAY, fixed_today, make_agent
 
 API = "/api/v1"

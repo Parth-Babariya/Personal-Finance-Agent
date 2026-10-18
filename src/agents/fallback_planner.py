@@ -10,8 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..services.models import CATEGORIES
-from .tools import ToolContext, ToolOutcome, ToolRegistry
+from src.core.types import CATEGORIES
+from src.tools import ToolContext, ToolOutcome, ToolRegistry
 
 # Ordered longest-first so "last 7 days" wins over "last".
 _PERIOD_PHRASES: list[tuple[str, str]] = [

@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
-from src.config import Settings
-from src.services.security import create_access_token
+from src.core.config import Settings
+from src.core.security import create_access_token
 from tests.conftest import FakeLLM, call, fixed_today, text
 
 API = "/api/v1"

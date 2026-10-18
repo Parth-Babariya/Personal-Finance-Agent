@@ -6,10 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ...agent.tools import Category
-from ...services.analytics import AnalyticsService
-from ...services.periods import describe_range, normalize_period, resolve_period
-from ..deps import get_analytics, get_current_user_id
+from src.api.deps import get_analytics, get_current_user_id
+from src.core.types import Category
+from src.services.analytics import AnalyticsService
+from src.services.periods import describe_range, normalize_period, resolve_period
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 

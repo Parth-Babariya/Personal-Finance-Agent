@@ -9,9 +9,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from ..interfaces.transaction_service import ITransactionService
-from .budgets import BudgetService
-from .models import PendingAction
+from src.db.models import PendingAction
+from src.interfaces.transaction_service import ITransactionService
+from src.services.budgets import BudgetService
 
 
 class ActionError(Exception):

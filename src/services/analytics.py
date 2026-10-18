@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
-from ..interfaces.transaction_service import ITransactionService
+from src.interfaces.transaction_service import ITransactionService
 
 ANOMALY_BASELINE_DAYS = 180
 MIN_CATEGORY_SAMPLES = 5

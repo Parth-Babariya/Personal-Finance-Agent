@@ -4,9 +4,9 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from src.agent.llm import LLMResponse, Usage
 from src.api.app import create_app
-from src.services.rate_limit import SlidingWindowLimiter
+from src.guardrails.rate_limit import SlidingWindowLimiter
+from src.llm.client import LLMResponse, Usage
 from src.services.usage import UsageService
 from tests.conftest import FakeLLM, fixed_today, make_agent
 

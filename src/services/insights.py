@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from ..interfaces.insight_generator import IInsightGenerator
+from src.interfaces.insight_generator import IInsightGenerator
 
 LARGE_TRANSACTION_SHARE = 0.25  # a single expense above 25% of spend is notable
 HIGH_CATEGORY_SHARE = 0.40  # one category above 40% of spend is notable

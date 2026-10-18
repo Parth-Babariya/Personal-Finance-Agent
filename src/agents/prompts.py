@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..services.models import EXPENSE_CATEGORIES, INCOME_CATEGORIES
+from src.core.types import EXPENSE_CATEGORIES, INCOME_CATEGORIES
 
 SYSTEM_PROMPT = """You are a personal finance assistant inside a budgeting app.
 Today is {today} ({weekday}). Amounts are in {currency}.

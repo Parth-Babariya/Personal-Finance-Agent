@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
-from src.services.categorize import TransactionCategorizer, rule_category
-from src.services.importer import ImportService, StatementError, parse_amount, parse_date, parse_statement
+from src.workflows.categorization import TransactionCategorizer, rule_category
+from src.workflows.statement_import import ImportService, StatementError, parse_amount, parse_date, parse_statement
 from tests.conftest import TODAY, FakeLLM, fixed_today, text
 
 HDFC_STYLE = b"""HDFC BANK Ltd. Statement of account

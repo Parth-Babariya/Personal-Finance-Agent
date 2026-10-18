@@ -11,16 +11,16 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from src.agent.agent import FinanceAgent
-from src.agent.llm import LLMResponse, TextDelta, ToolCall
-from src.agent.tools import ToolRegistry
+from src.agents.finance_agent import FinanceAgent
 from src.api.app import create_app
-from src.config import Settings
-from src.services.conversation_store import ConversationStore
-from src.services.db import init_db, make_engine, make_session_factory
-from src.services.insight_generator import SimpleInsightGenerator
-from src.services.models import User
-from src.services.sql_transaction_service import SQLTransactionService
+from src.core.config import Settings
+from src.db.models import User
+from src.db.session import init_db, make_engine, make_session_factory
+from src.llm.client import LLMResponse, TextDelta, ToolCall
+from src.memory.conversation_store import ConversationStore
+from src.services.insights import SimpleInsightGenerator
+from src.services.transactions import SQLTransactionService
+from src.tools import ToolRegistry
 
 TODAY = date(2026, 3, 18)  # a Wednesday
 

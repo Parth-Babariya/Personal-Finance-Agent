@@ -8,7 +8,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from .models import DailyUsage
+from src.db.models import DailyUsage
 
 
 class UsageService:

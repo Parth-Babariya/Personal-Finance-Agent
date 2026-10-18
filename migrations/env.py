@@ -6,8 +6,8 @@ from logging.config import fileConfig
 from alembic import context
 from dotenv import load_dotenv
 
-from src.services import models  # noqa: F401  # register tables on Base.metadata
-from src.services.db import Base, make_engine
+from src.db import models  # noqa: F401  # register tables on Base.metadata
+from src.db.session import Base, make_engine
 
 config = context.config
 if config.config_file_name is not None:

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import sessionmaker
 
-from .models import ChatMessage
+from src.db.models import ChatMessage
 
 
 def _to_dict(row: ChatMessage) -> dict[str, Any]:

@@ -10,8 +10,8 @@ from typing import Any
 from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import sessionmaker
 
-from ..interfaces.transaction_service import ITransactionService
-from .models import Transaction
+from src.db.models import Transaction
+from src.interfaces.transaction_service import ITransactionService
 
 _UPDATABLE_FIELDS = {"amount", "type", "category", "description", "date"}
 

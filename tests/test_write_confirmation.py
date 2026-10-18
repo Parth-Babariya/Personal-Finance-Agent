@@ -5,11 +5,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from src.agent.llm import LLMResponse, ToolCall
-from src.agent.tools import ToolContext, ToolRegistry
 from src.api.app import create_app
-from src.services.insight_generator import SimpleInsightGenerator
-from src.services.pending_actions import ActionError, PendingActionService
+from src.llm.client import LLMResponse, ToolCall
+from src.services.insights import SimpleInsightGenerator
+from src.tools import ToolContext, ToolRegistry
+from src.workflows.approvals import ActionError, PendingActionService
 from tests.conftest import TODAY, FakeLLM, call, fixed_today, make_agent, text
 
 
@@ -164,6 +164,6 @@ class TestActionsAPI:
     ],
 )
 def test_classify_reply(message, expected):
-    from src.agent.agent import _classify_reply
+    from src.agents.finance_agent import _classify_reply
 
     assert _classify_reply(message) == expected

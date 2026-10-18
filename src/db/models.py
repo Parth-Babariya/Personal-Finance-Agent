@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models and shared domain constants."""
+"""SQLAlchemy ORM models."""
 
 from __future__ import annotations
 
@@ -10,26 +10,7 @@ from typing import Any
 from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .db import Base
-
-TRANSACTION_TYPES = ("expense", "income")
-
-EXPENSE_CATEGORIES = (
-    "food",
-    "groceries",
-    "transport",
-    "shopping",
-    "entertainment",
-    "utilities",
-    "rent",
-    "health",
-    "education",
-    "travel",
-    "subscriptions",
-    "other",
-)
-INCOME_CATEGORIES = ("salary", "freelance", "investment", "gift", "refund")
-CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES
+from src.db.session import Base
 
 
 def _uuid() -> str:

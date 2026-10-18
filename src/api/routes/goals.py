@@ -6,9 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from ...services.goals import GoalService
-from ..deps import get_current_user_id, get_goals
-from ..schemas import GoalContribution, GoalCreate
+from src.api.deps import get_current_user_id, get_goals
+from src.api.schemas import GoalContribution, GoalCreate
+from src.services.goals import GoalService
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 

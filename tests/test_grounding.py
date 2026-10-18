@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.agent.grounding import check_grounding, extract_money
+from src.guardrails.grounding import check_grounding, extract_money
 from tests.conftest import FakeLLM, call, make_agent, text
 
 SUMMARY = {"total_expense": 17000.0, "total_income": 60000.0, "net": 43000.0, "by_category": {"food": 800.0}}

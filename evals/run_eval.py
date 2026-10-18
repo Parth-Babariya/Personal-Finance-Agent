@@ -27,18 +27,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.agent.agent import FinanceAgent
-from src.agent.llm import OpenAIChatClient
-from src.agent.tools import ToolRegistry
+from src.agents.finance_agent import FinanceAgent
+from src.db.models import User
+from src.db.session import init_db, make_engine, make_session_factory
+from src.llm.client import OpenAIChatClient
+from src.memory.conversation_store import ConversationStore
 from src.services.analytics import AnalyticsService
 from src.services.budgets import BudgetService
-from src.services.conversation_store import ConversationStore
-from src.services.db import init_db, make_engine, make_session_factory
 from src.services.goals import GoalService
-from src.services.insight_generator import SimpleInsightGenerator
-from src.services.models import User
-from src.services.pending_actions import PendingActionService
-from src.services.sql_transaction_service import SQLTransactionService
+from src.services.insights import SimpleInsightGenerator
+from src.services.transactions import SQLTransactionService
+from src.tools import ToolRegistry
+from src.workflows.approvals import PendingActionService
 
 from .cases import CASES, Case
 from .dataset import EVAL_TODAY, seed, seed_plans
@@ -280,7 +280,7 @@ async def main() -> int:
     args = parser.parse_args()
     load_dotenv()
     # Agent logs full tracebacks when the LLM fails; the per-case notes are enough here.
-    logging.getLogger("src.agent.agent").setLevel(logging.CRITICAL)
+    logging.getLogger("src.agents.finance_agent").setLevel(logging.CRITICAL)
 
     modes = ["fallback", "llm"] if args.mode == "both" else [args.mode]
     if "llm" in modes and not os.getenv("OPENAI_API_KEY"):

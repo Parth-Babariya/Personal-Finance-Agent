@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..agent.tools import Category, TxType
+from src.core.types import Category, TxType
 
 
 class UserCredentials(BaseModel):

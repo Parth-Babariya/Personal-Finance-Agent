@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from src.agent.llm import LLMResponse, ToolCall, Usage
+from src.llm.client import LLMResponse, ToolCall, Usage
 from tests.conftest import FakeLLM, call, make_agent, text
 
 

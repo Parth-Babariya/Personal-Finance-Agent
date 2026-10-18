@@ -9,10 +9,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from ...agent.agent import FinanceAgent
-from ...services.conversation_store import ConversationStore
-from ..deps import get_agent, get_conversations, get_current_user_id, rate_limit_chat
-from ..schemas import ChatMessageResponse, ChatRequest, ChatResponse
+from src.agents.finance_agent import FinanceAgent
+from src.api.deps import get_agent, get_conversations, get_current_user_id, rate_limit_chat
+from src.api.schemas import ChatMessageResponse, ChatRequest, ChatResponse
+from src.memory.conversation_store import ConversationStore
 
 router = APIRouter(tags=["chat"])
 

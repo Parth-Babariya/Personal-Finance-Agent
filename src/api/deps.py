@@ -7,17 +7,17 @@ import math
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
-from ..agent.agent import FinanceAgent
-from ..config import Settings
-from ..services.analytics import AnalyticsService
-from ..services.auth_service import AuthService
-from ..services.budgets import BudgetService
-from ..services.conversation_store import ConversationStore
-from ..services.goals import GoalService
-from ..services.importer import ImportService
-from ..services.pending_actions import PendingActionService
-from ..services.security import decode_access_token
-from ..services.sql_transaction_service import SQLTransactionService
+from src.agents.finance_agent import FinanceAgent
+from src.core.config import Settings
+from src.core.security import decode_access_token
+from src.memory.conversation_store import ConversationStore
+from src.services.analytics import AnalyticsService
+from src.services.auth import AuthService
+from src.services.budgets import BudgetService
+from src.services.goals import GoalService
+from src.services.transactions import SQLTransactionService
+from src.workflows.approvals import PendingActionService
+from src.workflows.statement_import import ImportService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 

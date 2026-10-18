@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.agent.fallback import HELP_TEXT, KeywordFallbackPlanner
-from src.agent.tools import ToolContext
+from src.agents.fallback_planner import HELP_TEXT, KeywordFallbackPlanner
+from src.tools import ToolContext
 from tests.conftest import TODAY
 
 
@@ -69,11 +69,11 @@ async def test_respond_help_text_without_tools(planner, seeded):
 
 @pytest.fixture
 def full_planner(session_factory, tx_service):
-    from src.agent.tools import ToolRegistry
     from src.services.analytics import AnalyticsService
     from src.services.budgets import BudgetService
     from src.services.goals import GoalService
-    from src.services.insight_generator import SimpleInsightGenerator
+    from src.services.insights import SimpleInsightGenerator
+    from src.tools import ToolRegistry
     from tests.conftest import fixed_today
 
     budgets = BudgetService(session_factory, tx_service, today=fixed_today)

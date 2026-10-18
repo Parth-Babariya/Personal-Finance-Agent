@@ -7,9 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ...services.pending_actions import ActionError, PendingActionService
-from ..deps import get_actions, get_current_user_id
-from ..schemas import ActionResponse
+from src.api.deps import get_actions, get_current_user_id
+from src.api.schemas import ActionResponse
+from src.workflows.approvals import ActionError, PendingActionService
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 

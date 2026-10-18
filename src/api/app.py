@@ -13,24 +13,24 @@ from datetime import date
 
 from fastapi import FastAPI
 
-from ..agent.agent import FinanceAgent
-from ..agent.llm import LLMClient, OpenAIChatClient
-from ..agent.tools import ToolRegistry
-from ..config import Settings
-from ..services.analytics import AnalyticsService
-from ..services.auth_service import AuthService
-from ..services.budgets import BudgetService
-from ..services.categorize import TransactionCategorizer
-from ..services.conversation_store import ConversationStore
-from ..services.db import init_db, make_engine, make_session_factory
-from ..services.goals import GoalService
-from ..services.importer import ImportService
-from ..services.insight_generator import SimpleInsightGenerator
-from ..services.pending_actions import PendingActionService
-from ..services.rate_limit import SlidingWindowLimiter
-from ..services.sql_transaction_service import SQLTransactionService
-from ..services.usage import UsageService
-from .routes import api_router
+from src.agents.finance_agent import FinanceAgent
+from src.api.routes import api_router
+from src.core.config import Settings
+from src.db.session import init_db, make_engine, make_session_factory
+from src.guardrails.rate_limit import SlidingWindowLimiter
+from src.llm.client import LLMClient, OpenAIChatClient
+from src.memory.conversation_store import ConversationStore
+from src.services.analytics import AnalyticsService
+from src.services.auth import AuthService
+from src.services.budgets import BudgetService
+from src.services.goals import GoalService
+from src.services.insights import SimpleInsightGenerator
+from src.services.transactions import SQLTransactionService
+from src.services.usage import UsageService
+from src.tools import ToolRegistry
+from src.workflows.approvals import PendingActionService
+from src.workflows.categorization import TransactionCategorizer
+from src.workflows.statement_import import ImportService
 
 _UNSET = object()
 
