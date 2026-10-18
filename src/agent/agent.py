@@ -21,6 +21,7 @@ from typing import Any
 
 from ..services.conversation_store import ConversationStore
 from ..services.pending_actions import ActionError, PendingActionService
+from ..services.usage import UsageService
 from .fallback import KeywordFallbackPlanner
 from .grounding import GroundingReport, check_grounding
 from .llm import LLMClient, LLMResponse, TextDelta, Usage
@@ -62,7 +63,7 @@ class AgentResult:
     usage: Usage = field(default_factory=Usage)
     latency_ms: float = 0.0
     redacted: list[str] = field(default_factory=list)
-    fallback_reason: str | None = None  # "no_llm" | "llm_error" | "timeout"
+    fallback_reason: str | None = None  # "no_llm" | "llm_error" | "timeout" | "budget"
     pending_actions: list[dict[str, Any]] = field(default_factory=list)
     grounding: dict[str, Any] = field(default_factory=dict)
 
@@ -85,6 +86,8 @@ class FinanceAgent:
         llm: LLMClient | None,
         *,
         actions: PendingActionService | None = None,
+        usage: UsageService | None = None,
+        daily_token_budget: int = 0,
         currency: str = "₹",
         max_steps: int = 5,
         history_limit: int = 10,
@@ -96,6 +99,8 @@ class FinanceAgent:
         self._conversations = conversations
         self._llm = llm
         self._actions = actions
+        self._usage = usage
+        self._daily_token_budget = daily_token_budget
         self._currency = currency
         self._max_steps = max_steps
         self._history_limit = history_limit
@@ -147,6 +152,8 @@ class FinanceAgent:
             mode, fallback_reason = "action", None
             state.reply, state.outcomes = decision
             yield {"type": "token", "text": state.reply}
+        elif self._llm is not None and await self._over_budget(user_id):
+            fallback_reason = "budget"
         elif self._llm is not None:
             mode, fallback_reason = "llm", None
             deadline = time.monotonic() + self._timeout
@@ -170,6 +177,10 @@ class FinanceAgent:
                 yield {"type": "tool_result", "name": outcome.name, "ok": outcome.ok}
             yield {"type": "token", "text": reply}
 
+        if self._usage is not None and (state.usage.prompt_tokens or state.usage.completion_tokens):
+            await asyncio.to_thread(
+                self._usage.record, user_id, state.usage.prompt_tokens, state.usage.completion_tokens
+            )
         records = [o.to_record() for o in state.outcomes]
         await asyncio.to_thread(self._conversations.add_message, user_id, "user", message)
         await asyncio.to_thread(
@@ -203,6 +214,11 @@ class FinanceAgent:
             # Fallback and action replies are rendered from tool results, so grounded by construction.
             "grounding": (state.grounding or GroundingReport()).to_dict(),
         }
+
+    async def _over_budget(self, user_id: str) -> bool:
+        if self._usage is None or self._daily_token_budget <= 0:
+            return False
+        return await asyncio.to_thread(self._usage.tokens_today, user_id) >= self._daily_token_budget
 
     def _money(self, value: float) -> str:
         return f"{self._currency}{value:,.2f}"

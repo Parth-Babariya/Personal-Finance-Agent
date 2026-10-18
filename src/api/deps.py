@@ -1,6 +1,8 @@
-"""FastAPI dependencies: services from ``app.state`` and the current user."""
+"""FastAPI dependencies: services from ``app.state``, the current user, rate limits."""
 
 from __future__ import annotations
+
+import math
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -54,4 +56,27 @@ def get_current_user_id(
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    return user_id
+
+
+def too_many_requests(retry_after: float, detail: str = "Too many requests") -> None:
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=detail,
+        headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
+    )
+
+
+def rate_limit_auth(request: Request) -> None:
+    client = request.client.host if request.client else "unknown"
+    wait = request.app.state.limiters.auth.hit(client)
+    if wait is not None:
+        too_many_requests(wait)
+
+
+def rate_limit_chat(request: Request, user_id: str = Depends(get_current_user_id)) -> str:
+    """Resolve the current user and enforce the per-user chat rate limit."""
+    wait = request.app.state.limiters.chat.hit(user_id)
+    if wait is not None:
+        too_many_requests(wait, "Chat rate limit reached. Please wait a moment.")
     return user_id

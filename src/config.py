@@ -40,6 +40,13 @@ class Settings:
     agent_timeout_seconds: float = 45.0
     require_write_confirmation: bool = True
 
+    # Abuse and cost controls (0 disables a limit)
+    chat_requests_per_minute: int = 20
+    auth_requests_per_minute: int = 10
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
+    daily_token_budget: int = 200_000
+
     @classmethod
     def from_env(cls) -> Settings:
         app_env = os.getenv("APP_ENV", "development").lower()
@@ -65,4 +72,9 @@ class Settings:
             chat_history_limit=int(os.getenv("CHAT_HISTORY_LIMIT", "10")),
             agent_timeout_seconds=float(os.getenv("AGENT_TIMEOUT_SECONDS", "45")),
             require_write_confirmation=_env_bool("REQUIRE_WRITE_CONFIRMATION", True),
+            chat_requests_per_minute=int(os.getenv("CHAT_REQUESTS_PER_MINUTE", "20")),
+            auth_requests_per_minute=int(os.getenv("AUTH_REQUESTS_PER_MINUTE", "10")),
+            login_max_failures=int(os.getenv("LOGIN_MAX_FAILURES", "5")),
+            login_lockout_minutes=int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15")),
+            daily_token_budget=int(os.getenv("DAILY_TOKEN_BUDGET", "200000")),
         )

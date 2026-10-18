@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from ...agent.agent import FinanceAgent
 from ...services.conversation_store import ConversationStore
-from ..deps import get_agent, get_conversations, get_current_user_id
+from ..deps import get_agent, get_conversations, get_current_user_id, rate_limit_chat
 from ..schemas import ChatMessageResponse, ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
@@ -21,7 +21,7 @@ router = APIRouter(tags=["chat"])
 async def chat(
     req: ChatRequest,
     agent: FinanceAgent = Depends(get_agent),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(rate_limit_chat),
 ) -> Any:
     result = await agent.respond(req.message, user_id=user_id)
     return {
@@ -40,7 +40,7 @@ async def chat(
 async def chat_stream(
     req: ChatRequest,
     agent: FinanceAgent = Depends(get_agent),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(rate_limit_chat),
 ) -> StreamingResponse:
     """Stream agent events as SSE: ``token``, ``tool_call``, ``tool_result``, ``done``."""
 

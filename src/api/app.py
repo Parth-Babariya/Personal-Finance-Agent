@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import date
 
 from fastapi import FastAPI
@@ -21,10 +22,27 @@ from ..services.conversation_store import ConversationStore
 from ..services.db import init_db, make_engine, make_session_factory
 from ..services.insight_generator import SimpleInsightGenerator
 from ..services.pending_actions import PendingActionService
+from ..services.rate_limit import SlidingWindowLimiter
 from ..services.sql_transaction_service import SQLTransactionService
+from ..services.usage import UsageService
 from .routes import api_router
 
 _UNSET = object()
+
+
+@dataclass
+class Limiters:
+    chat: SlidingWindowLimiter
+    auth: SlidingWindowLimiter
+    login_failures: SlidingWindowLimiter
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> Limiters:
+        return cls(
+            chat=SlidingWindowLimiter(settings.chat_requests_per_minute, 60),
+            auth=SlidingWindowLimiter(settings.auth_requests_per_minute, 60),
+            login_failures=SlidingWindowLimiter(settings.login_max_failures, settings.login_lockout_minutes * 60),
+        )
 
 
 def build_llm(settings: Settings) -> LLMClient | None:
@@ -69,11 +87,14 @@ def create_app(
     app.state.auth_service = AuthService(session_factory)
     app.state.conversations = conversations
     app.state.actions = actions
+    app.state.limiters = Limiters.from_settings(settings)
     app.state.agent = FinanceAgent(
         registry,
         conversations,
         llm_client,  # type: ignore[arg-type]
         actions=actions,
+        usage=UsageService(session_factory, today=today),
+        daily_token_budget=settings.daily_token_budget,
         currency=settings.currency_symbol,
         max_steps=settings.agent_max_steps,
         history_limit=settings.chat_history_limit,
