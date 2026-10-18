@@ -159,9 +159,9 @@ if not st.session_state.token:
 
 with st.sidebar:
     st.caption(f"Signed in as **{st.session_state.username}**")
-    view = st.segmented_control(
-        "View", ["Chat", "Transactions", "Dashboard"], default="Chat", label_visibility="collapsed"
-    ) or "Chat"
+    view = st.radio(
+        "View", ["Chat", "Dashboard", "Transactions", "Budgets & goals", "Import"], label_visibility="collapsed"
+    )
     if st.button("Clear chat history", icon=":material/delete_sweep:", width="stretch"):
         api("DELETE", "/chat/history")
         st.session_state.messages = []
@@ -285,7 +285,7 @@ elif view == "Transactions":
 
 # --- dashboard ---
 
-else:
+elif view == "Dashboard":
     st.title("Dashboard")
     period_label = st.segmented_control("Period", list(PERIODS), default="This month") or "This month"
     resp = api("GET", "/summary", params={"period": PERIODS[period_label]})
@@ -300,10 +300,183 @@ else:
         st.metric("Net", money(summary["net"]), border=True)
         st.metric("Transactions", summary["transaction_count"], border=True)
 
-    if summary["by_category"]:
-        df = pd.DataFrame(summary["by_category"].items(), columns=["Category", "Amount"])
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Monthly trend")
+        trend = api("GET", "/analytics/trend", params={"months": 6}).json()["months"]
+        trend_df = pd.DataFrame(trend).rename(columns={"month": "Month", "expense": "Spent", "income": "Income"})
+        st.line_chart(trend_df, x="Month", y=["Spent", "Income"], alt="Monthly income and spending, last 6 months")
+    with right:
         st.subheader("Spending by category")
-        st.bar_chart(df, x="Category", y="Amount", horizontal=True, sort="-Amount",
-                     alt="Spending by category for the selected period")
-    else:
-        st.info("No expenses in this period yet.")
+        if summary["by_category"]:
+            df = pd.DataFrame(summary["by_category"].items(), columns=["Category", "Amount"])
+            st.bar_chart(df, x="Category", y="Amount", horizontal=True, sort="-Amount",
+                         alt="Spending by category for the selected period")
+        else:
+            st.info("No expenses in this period yet.")
+
+    budgets = api("GET", "/budgets/status").json()
+    if budgets:
+        st.subheader("Budgets this month")
+        for b in budgets:
+            label = f"{b['category']}: {money(b['spent'])} of {money(b['limit'])} ({b['used_pct']:.0f}%)"
+            if b["state"] != "ok":
+                label += " · over budget" if b["state"] == "over" else " · nearly used"
+            st.progress(min(b["used_pct"] / 100, 1.0), text=label)
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Recurring payments")
+        recurring = api("GET", "/analytics/recurring").json()
+        if recurring["recurring"]:
+            st.caption(f"About {money(recurring['estimated_monthly_total'])} per month")
+            st.dataframe(
+                pd.DataFrame(recurring["recurring"])[["description", "typical_amount", "next_expected"]],
+                hide_index=True,
+                column_config={
+                    "description": "Payee",
+                    "typical_amount": st.column_config.NumberColumn("Amount", format=f"{CURRENCY}%.2f"),
+                    "next_expected": st.column_config.DateColumn("Next expected"),
+                },
+                alt="Detected recurring payments",
+            )
+        else:
+            st.caption("Needs at least three months of history.")
+    with right:
+        st.subheader("Unusual spending")
+        unusual = api("GET", "/analytics/unusual", params={"period": "last_30_days"}).json()["unusual"]
+        if unusual:
+            for t in unusual:
+                st.markdown(f"**{money(t['amount'])}** · {t['description'] or t['category']} · {t['date']}")
+                st.caption(t["reason"])
+        else:
+            st.caption("Nothing unusual in the last 30 days.")
+
+
+# --- budgets & goals ---
+
+elif view == "Budgets & goals":
+    st.title("Budgets & goals")
+    budget_col, goal_col = st.columns(2)
+
+    with budget_col:
+        st.subheader("Monthly budgets")
+        with st.form("set_budget", clear_on_submit=True):
+            row = st.container(horizontal=True, vertical_alignment="bottom")
+            category = row.selectbox("Category", EXPENSE_CATEGORIES)
+            limit = row.number_input(f"Monthly limit ({CURRENCY})", min_value=1.0, step=500.0, value=5000.0)
+            if row.form_submit_button("Save", type="primary"):
+                resp = api("PUT", f"/budgets/{category}", json={"monthly_limit": limit})
+                st.toast("Budget saved" if resp.is_success else error_detail(resp))
+        for b in api("GET", "/budgets/status").json():
+            with st.container(border=True):
+                st.progress(min(b["used_pct"] / 100, 1.0),
+                            text=f"**{b['category']}** · {money(b['spent'])} of {money(b['limit'])}")
+                projected = b.get("projected_month_end")
+                caption = f"{money(b['remaining'])} left" if b["remaining"] >= 0 else \
+                    f"{money(-b['remaining'])} over"
+                if projected is not None:
+                    caption += f" · on pace for {money(projected)}"
+                st.caption(caption)
+                if st.button("Remove", key=f"del_budget_{b['category']}", icon=":material/delete:"):
+                    api("DELETE", f"/budgets/{b['category']}")
+                    st.rerun()
+
+    with goal_col:
+        st.subheader("Savings goals")
+        with st.expander("New goal", icon=":material/add:"):
+            with st.form("new_goal", clear_on_submit=True):
+                name = st.text_input("Name", placeholder="Goa trip")
+                target = st.number_input(f"Target ({CURRENCY})", min_value=1.0, step=1000.0, value=50000.0)
+                deadline = st.date_input("Target date (optional)", value=None, min_value=date.today())
+                if st.form_submit_button("Create", type="primary"):
+                    resp = api("POST", "/goals", json={
+                        "name": name or "Goal", "target_amount": target,
+                        "target_date": deadline.isoformat() if deadline else None,
+                    })
+                    st.toast("Goal created" if resp.is_success else error_detail(resp))
+        for g in api("GET", "/goals").json():
+            with st.container(border=True):
+                st.progress(g["progress_pct"] / 100,
+                            text=f"**{g['name']}** · {money(g['saved_amount'])} of {money(g['target_amount'])}")
+                details = []
+                if g["completed"]:
+                    details.append("Completed")
+                elif g["required_per_month"] is not None:
+                    details.append(f"Needs {money(g['required_per_month'])}/month by {g['target_date']} · "
+                                   + ("on track" if g["on_track"] else "behind"))
+                if g["projected_completion"] and not g["completed"]:
+                    details.append(f"At your current rate: {g['projected_completion']}")
+                if details:
+                    st.caption(" · ".join(details))
+                row = st.container(horizontal=True, vertical_alignment="bottom")
+                amount = row.number_input("Amount", step=500.0, value=1000.0, key=f"amt_{g['id']}",
+                                          label_visibility="collapsed")
+                if row.button("Add savings", key=f"add_{g['id']}"):
+                    api("POST", f"/goals/{g['id']}/contributions", json={"amount": amount})
+                    st.rerun()
+                if row.button("Delete", key=f"del_{g['id']}", icon=":material/delete:"):
+                    api("DELETE", f"/goals/{g['id']}")
+                    st.rerun()
+
+
+# --- import ---
+
+else:
+    st.title("Import bank statement")
+    st.caption("Upload a CSV export from your bank. Review the categories, then import. Nothing is saved until "
+               "you press Import.")
+    upload = st.file_uploader("Statement (.csv)", type=["csv"])
+    if upload is not None and st.session_state.get("import_file") != upload.file_id:
+        resp = api("POST", "/imports", files={"file": (upload.name, upload.getvalue(), "text/csv")})
+        st.session_state.import_file = upload.file_id
+        st.session_state.import_preview = resp.json() if resp.is_success else None
+        if not resp.is_success:
+            st.error(error_detail(resp))
+
+    preview = st.session_state.get("import_preview")
+    if preview and preview["status"] == "pending":
+        s = preview["summary"]
+        with st.container(horizontal=True):
+            st.metric("Rows", s["rows"], border=True)
+            st.metric("Duplicates", s["duplicates"], border=True)
+            st.metric("Expenses", money(s["expense_total"]), border=True)
+            st.metric("Income", money(s["income_total"]), border=True)
+        by = s["categorized_by"]
+        st.caption(f"Categorised by rules: {by['rule']} · by AI: {by['llm']} · uncategorised: {by['default']}")
+        for err in preview["errors"][:5]:
+            st.warning(f"Line {err['line']}: {err['error']}")
+
+        original = pd.DataFrame(preview["rows"])
+        edited = st.data_editor(
+            original[["include", "date", "description", "amount", "type", "category", "duplicate"]],
+            hide_index=True,
+            disabled=["date", "description", "amount", "type", "duplicate"],
+            column_config={
+                "include": st.column_config.CheckboxColumn("Import"),
+                "amount": st.column_config.NumberColumn("Amount", format=f"{CURRENCY}%.2f"),
+                "category": st.column_config.SelectboxColumn(
+                    "Category", options=EXPENSE_CATEGORIES + INCOME_CATEGORIES, required=True
+                ),
+                "duplicate": st.column_config.CheckboxColumn("Duplicate?"),
+            },
+            key=f"import_editor_{preview['id']}",
+        )
+        with st.container(horizontal=True):
+            if st.button(f"Import {int(edited['include'].sum())} transactions", type="primary"):
+                changes = [
+                    {"index": i, "include": bool(edited.at[i, "include"]), "category": edited.at[i, "category"]}
+                    for i in range(len(edited))
+                    if edited.at[i, "include"] != original.at[i, "include"]
+                    or edited.at[i, "category"] != original.at[i, "category"]
+                ]
+                resp = api("POST", f"/imports/{preview['id']}/commit", json={"rows": changes})
+                if resp.is_success:
+                    st.success(f"Imported {resp.json()['imported']} transactions.")
+                    st.session_state.import_preview = None
+                else:
+                    st.error(error_detail(resp))
+            if st.button("Discard"):
+                api("DELETE", f"/imports/{preview['id']}")
+                st.session_state.import_preview = None
+                st.rerun()
