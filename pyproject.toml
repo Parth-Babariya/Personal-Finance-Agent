@@ -1,0 +1,20 @@
+[project]
+name = "personal-finance-agent"
+version = "0.2.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]  # FastAPI's Depends() in defaults is idiomatic
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/ui/*"]  # Streamlit UI is smoke-tested manually, not unit-tested
