@@ -1,5 +1,7 @@
 """Tool registry: schemas, validation, execution, and user scoping."""
 
+import json
+
 import pytest
 
 from src.tools import ToolContext
@@ -91,3 +93,24 @@ async def test_tools_are_scoped_to_context_user(registry, seeded, other_user_id)
     other = ToolContext(user_id=other_user_id, today=TODAY)
     out = await registry.execute("get_spending_summary", {"period": "all_time"}, other)
     assert out.result["transaction_count"] == 0
+
+
+def test_schemas_are_compact_but_keep_constraints(registry):
+    text = json.dumps(registry.schemas())
+    assert '"title"' not in text and '"anyOf"' not in text and '"default": null' not in text
+    search = next(s for s in registry.schemas() if s["function"]["name"] == "search_transactions")
+    props = search["function"]["parameters"]["properties"]
+    assert props["limit"] == {"default": 20, "maximum": 50, "minimum": 1, "type": "integer"}
+    assert "food" in props["category"]["enum"] and props["query"]["maxLength"] == 100
+
+
+def test_compact_schema_keeps_a_property_literally_named_title():
+    from src.tools.base import compact_schema
+
+    schema = {"title": "Args", "properties": {"title": {"title": "Title", "type": "string"}}}
+    assert compact_schema(schema) == {"properties": {"title": {"type": "string"}}}
+
+
+async def test_explicit_null_still_validates(registry, ctx):
+    out = await registry.execute("search_transactions", {"category": None, "query": None}, ctx)
+    assert out.ok

@@ -109,12 +109,43 @@ class Tool(ABC):
         """Execute synchronously (the registry runs it in a worker thread)."""
 
     def schema(self) -> dict[str, Any]:
-        params = self.Args.model_json_schema()
-        params.pop("title", None)
+        params = compact_schema(self.Args.model_json_schema())
         return {
             "type": "function",
             "function": {"name": self.name, "description": self.description, "parameters": params},
         }
+
+
+def compact_schema(node: Any) -> Any:
+    """Drop JSON-schema noise that costs tokens on every LLM call but tells the model nothing.
+
+    - auto-generated ``title`` fields (they repeat the property name)
+    - ``default: null`` (optional fields are already absent from ``required``)
+    - ``anyOf: [X, {"type": "null"}]`` wrappers, collapsed to ``X``
+    Descriptions, enums, ranges and defaults with real values are kept, and
+    arguments are still validated against the full Pydantic model.
+    """
+    if isinstance(node, list):
+        return [compact_schema(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    variants = node.get("anyOf")
+    if isinstance(variants, list) and len(variants) == 2 and {"type": "null"} in variants:
+        inner = next(v for v in variants if v != {"type": "null"})
+        node = {**{k: v for k, v in node.items() if k != "anyOf"}, **inner}
+
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "title" and isinstance(value, str):
+            continue
+        if key == "default" and value is None:
+            continue
+        if key == "properties" and isinstance(value, dict):
+            out[key] = {name: compact_schema(prop) for name, prop in value.items()}  # keys are field names
+        else:
+            out[key] = compact_schema(value)
+    return out
 
 
 def compact(t: dict[str, Any]) -> dict[str, Any]:
