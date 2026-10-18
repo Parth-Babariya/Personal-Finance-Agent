@@ -13,6 +13,7 @@ from ..services.analytics import AnalyticsService
 from ..services.auth_service import AuthService
 from ..services.budgets import BudgetService
 from ..services.conversation_store import ConversationStore
+from ..services.goals import GoalService
 from ..services.pending_actions import PendingActionService
 from ..services.security import decode_access_token
 from ..services.sql_transaction_service import SQLTransactionService
@@ -44,6 +45,10 @@ def get_actions(request: Request) -> PendingActionService:
 
 def get_analytics(request: Request) -> AnalyticsService:
     return request.app.state.analytics
+
+
+def get_goals(request: Request) -> GoalService:
+    return request.app.state.goals
 
 
 def get_budgets(request: Request) -> BudgetService:

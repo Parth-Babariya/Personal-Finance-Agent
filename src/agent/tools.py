@@ -23,6 +23,7 @@ from ..interfaces.insight_generator import IInsightGenerator
 from ..interfaces.transaction_service import ITransactionService
 from ..services.analytics import AnalyticsService
 from ..services.budgets import BudgetService
+from ..services.goals import GoalService
 from ..services.models import CATEGORIES, EXPENSE_CATEGORIES
 from ..services.pending_actions import PendingActionService
 from ..services.periods import Period, describe_range, resolve_period
@@ -49,6 +50,7 @@ class ToolDeps:
     actions: PendingActionService | None = None
     budgets: BudgetService | None = None
     analytics: AnalyticsService | None = None
+    goals: GoalService | None = None
 
 
 @dataclass
@@ -375,6 +377,20 @@ class FindRecurringPayments(Tool):
         return self._deps.analytics.recurring_payments(ctx.user_id)
 
 
+class GetSavingsGoals(Tool):
+    name = "get_savings_goals"
+    description = (
+        "The user's savings goals: target, saved so far, progress, deadline, required saving per month, "
+        "average monthly saving over recent months, whether they are on track and projected completion."
+    )
+    Args = NoArgs
+    requires = ("goals",)
+
+    def run(self, args: NoArgs, ctx: ToolContext) -> dict[str, Any]:
+        goals = self._deps.goals.list(ctx.user_id)
+        return {"goals": goals} if goals else {"goals": [], "note": "The user has no savings goals yet."}
+
+
 DEFAULT_TOOLS: tuple[type[Tool], ...] = (
     GetSpendingSummary,
     ComparePeriods,
@@ -386,6 +402,7 @@ DEFAULT_TOOLS: tuple[type[Tool], ...] = (
     GetMonthlyTrend,
     FindUnusualSpending,
     FindRecurringPayments,
+    GetSavingsGoals,
 )
 
 

@@ -55,6 +55,19 @@ class BudgetSet(BaseModel):
     monthly_limit: float = Field(..., gt=0, le=100_000_000)
 
 
+class GoalCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=80)
+    target_amount: float = Field(..., gt=0, le=1_000_000_000)
+    target_date: dt.date | None = None
+    saved_amount: float = Field(default=0, ge=0, le=1_000_000_000)
+
+
+class GoalContribution(BaseModel):
+    amount: float = Field(..., description="Positive to add savings, negative to withdraw")
+
+
 class BudgetStatus(BaseModel):
     category: str
     month: str

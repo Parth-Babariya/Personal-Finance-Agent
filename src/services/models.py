@@ -124,3 +124,17 @@ class Budget(Base):
     category: Mapped[str] = mapped_column(String(32))
     monthly_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SavingsGoal(Base):
+    """A savings target, optionally with a deadline."""
+
+    __tablename__ = "savings_goals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    target_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    saved_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
