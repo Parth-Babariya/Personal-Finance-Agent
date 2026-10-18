@@ -22,8 +22,9 @@ from typing import Any
 from ..services.conversation_store import ConversationStore
 from ..services.pending_actions import ActionError, PendingActionService
 from .fallback import KeywordFallbackPlanner
+from .grounding import GroundingReport, check_grounding
 from .llm import LLMClient, LLMResponse, TextDelta, Usage
-from .prompts import TOOL_BUDGET_EXHAUSTED, build_system_prompt
+from .prompts import GROUNDING_RETRY, TOOL_BUDGET_EXHAUSTED, UNVERIFIED_NOTE, build_system_prompt
 from .redaction import redact
 from .tools import ToolContext, ToolOutcome, ToolRegistry
 
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS_PER_STEP = 6
 MAX_WRITES_PER_TURN = 3
+GROUNDING_RETRY_STEPS = 2
 INTERRUPTED_NOTE = "\n\n(The response was interrupted. Please try again.)"
 
 # Short replies that confirm or cancel open pending actions without calling the LLM. A reply
@@ -62,6 +64,7 @@ class AgentResult:
     redacted: list[str] = field(default_factory=list)
     fallback_reason: str | None = None  # "no_llm" | "llm_error" | "timeout"
     pending_actions: list[dict[str, Any]] = field(default_factory=list)
+    grounding: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -71,6 +74,7 @@ class _RunState:
     steps: int = 0
     reply: str = ""
     emitted_text: bool = False
+    grounding: GroundingReport | None = None
 
 
 class FinanceAgent:
@@ -120,6 +124,7 @@ class FinanceAgent:
             redacted=done["redacted"],
             fallback_reason=done["fallback_reason"],
             pending_actions=done["pending_actions"],
+            grounding=done["grounding"],
         )
 
     async def stream(self, message: str, user_id: str) -> AsyncIterator[dict[str, Any]]:
@@ -195,7 +200,12 @@ class FinanceAgent:
                 for o in state.outcomes
                 if o.ok and o.result.get("status") == "pending_confirmation"
             ],
+            # Fallback and action replies are rendered from tool results, so grounded by construction.
+            "grounding": (state.grounding or GroundingReport()).to_dict(),
         }
+
+    def _money(self, value: float) -> str:
+        return f"{self._currency}{value:,.2f}"
 
     def _write_count(self, state: _RunState) -> int:
         return sum(1 for o in state.outcomes if o.ok and getattr(self._registry.get(o.name), "mutates", False))
@@ -231,16 +241,44 @@ class FinanceAgent:
     async def _run_llm(
         self, message: str, history: list[dict[str, Any]], ctx: ToolContext, state: _RunState
     ) -> AsyncIterator[dict[str, Any]]:
-        assert self._llm is not None
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": build_system_prompt(ctx.today, self._currency)},
             *({"role": m["role"], "content": m["content"]} for m in history),
             {"role": "user", "content": message},
         ]
+        async for event in self._loop(messages, ctx, state, self._max_steps):
+            yield event
+
+        # Every money figure in the reply must trace back to tool results or the conversation.
+        context = [message, *(m["content"] for m in history)]
+        report = check_grounding(state.reply, [o.result for o in state.outcomes], context, self._currency)
+        if not report.verified:
+            report.retried = True
+            yield {"type": "reset"}  # clients discard the streamed text and render the retry
+            figures = ", ".join(self._money(v) for v in report.unverified)
+            messages += [
+                {"role": "assistant", "content": state.reply},
+                {"role": "system", "content": GROUNDING_RETRY.format(figures=figures)},
+            ]
+            async for event in self._loop(messages, ctx, state, GROUNDING_RETRY_STEPS):
+                yield event
+            retry = check_grounding(state.reply, [o.result for o in state.outcomes], context, self._currency)
+            report.checked, report.unverified = retry.checked, retry.unverified
+            if not retry.verified:
+                note = UNVERIFIED_NOTE.format(figures=", ".join(self._money(v) for v in retry.unverified))
+                state.reply += note
+                yield {"type": "token", "text": note}
+        state.grounding = report
+
+    async def _loop(
+        self, messages: list[dict[str, Any]], ctx: ToolContext, state: _RunState, max_steps: int
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Call the model, run requested tools, repeat until a text answer or the step budget runs out."""
+        assert self._llm is not None
         tools = self._registry.schemas()
 
-        for step in range(self._max_steps + 1):
-            budget_left = step < self._max_steps
+        for step in range(max_steps + 1):
+            budget_left = step < max_steps
             if not budget_left:
                 messages.append({"role": "system", "content": TOOL_BUDGET_EXHAUSTED})
 

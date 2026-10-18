@@ -31,6 +31,15 @@ TOOL_BUDGET_EXHAUSTED = (
 )
 
 
+GROUNDING_RETRY = (
+    "Your previous answer contained figures that do not appear in any tool result: {figures}. "
+    "Rewrite the answer using only numbers from tool results, calling a tool if you need more data. "
+    "Do not mention this correction."
+)
+
+UNVERIFIED_NOTE = "\n\n_Note: I couldn't verify {figures} against your data. Please double-check._"
+
+
 def build_system_prompt(today: date, currency: str) -> str:
     return SYSTEM_PROMPT.format(
         today=today.isoformat(),
