@@ -10,8 +10,13 @@ numbers taken from the database.
 
 ## Highlights
 
-- **Tool-calling agent loop.** The LLM picks from 6 typed tools, sees their results, and writes the answer.
+- **Tool-calling agent loop.** The LLM picks from 11 typed tools, sees their results, and writes the answer.
   It can call several tools in one step and supports multi-step reasoning with a step budget.
+- **Budgets, goals and analytics.** Monthly category budgets with alerts and month-end projections,
+  savings goals checked against the user's real saving rate, monthly trends, unusual-expense detection
+  and recurring-payment (subscription) detection, each with an explainable reason.
+- **Bank statement import.** Upload a CSV from your bank; rows are parsed, categorised by keyword rules and
+  then the LLM, checked for duplicates, and saved only after you review them.
 - **Guardrails.** Writes need user confirmation, money figures in replies are checked against tool
   results at runtime, card/Aadhaar/PAN numbers are masked before reaching the LLM, and rate limits plus a
   daily token budget cap abuse and cost. Details in [Guardrails](#guardrails).
@@ -21,10 +26,10 @@ numbers taken from the database.
 - **Works without an LLM.** A deterministic keyword planner uses the same tools when no API key is set or
   the provider fails. It never re-runs a write the LLM already made.
 - **Any OpenAI-compatible provider.** OpenAI, Groq, Gemini or Ollama, selected with `OPENAI_BASE_URL`.
-- **Eval harness.** 34 cases (summaries, comparisons, lookups, writes, multi-turn, guardrails). Each
+- **Eval harness.** 41 cases (summaries, comparisons, lookups, writes, multi-turn, planning, guardrails). Each
   reply is checked against ground truth computed from the database. See [evals/RESULTS.md](evals/RESULTS.md).
 - **Solid basics.** Money stored as `Numeric(12,2)`, income and expense types, real date-range periods,
-  full transaction CRUD with filters, Alembic migrations, 156 tests on an isolated in-memory
+  full transaction CRUD with filters, Alembic migrations, 208 tests on an isolated in-memory
   database, and lint plus migration checks in CI.
 
 ## Architecture
@@ -65,6 +70,11 @@ One chat turn:
 | `get_top_expenses` | Largest expenses in a period |
 | `get_insights` | Rule-based observations (top category, large purchases, savings rate) |
 | `add_transaction` | Propose an expense or income from natural language; saved only after the user confirms |
+| `check_budget` | Budget usage per category: spent, remaining, state (ok / warning / over), month-end projection |
+| `get_monthly_trend` | Month-by-month income, expense and net, optionally for one category |
+| `find_unusual_spending` | Expenses far above the user's norm for that category or overall, with a reason |
+| `find_recurring_payments` | Subscriptions and regular bills with typical amount and next expected date |
+| `get_savings_goals` | Goal progress, required saving per month, on-track status and projected completion |
 
 Periods: `today`, `this_week`, `last_7_days`, `this_month`, `last_month`, `last_30_days`, `this_year`,
 `last_year`, `all_time`, or explicit `start_date`/`end_date`.
@@ -80,6 +90,7 @@ Periods: `today`, `this_week`, `last_7_days`, `this_month`, `last_month`, `last_
 | Sensitive identifiers sent to the provider | Card numbers (Luhn-checked), Aadhaar, PAN, phone, email/UPI and account numbers masked before the LLM call and before storage |
 | Runaway loops or slow providers | Step budget with a forced final answer, max tool calls per step, and an overall deadline (`AGENT_TIMEOUT_SECONDS`) with fallback |
 | Cost abuse and brute force | Per-user chat rate limit, per-IP auth limit, lockout after repeated failed logins, daily LLM token budget per user (then fallback) |
+| Instructions hidden in imported statements | Descriptions are sanitised and truncated; the categoriser and the agent treat them as data; LLM labels are validated against the category list; covered by an eval case |
 | Off-topic requests and advice | System prompt scopes the assistant to budgeting and declines investment, tax or legal advice; covered by eval cases |
 
 The rate limiter is in-process; with several API replicas it should move to a shared store such as Redis.
@@ -115,6 +126,14 @@ For production, set `APP_ENV=production` (the app then refuses to start without 
 | POST | `/api/v1/actions/{id}/confirm`, `/cancel` | Apply or discard a proposed write |
 | GET / DELETE | `/api/v1/chat/history` | View or clear conversation history |
 | GET | `/api/v1/memory/search` | Keyword search over past conversation |
+| GET / PUT / DELETE | `/api/v1/budgets`, `/api/v1/budgets/{category}` | Monthly category budgets |
+| GET | `/api/v1/budgets/status` | Usage, state and projection for each budget |
+| GET | `/api/v1/analytics/trend`, `/unusual`, `/recurring` | Trends, unusual expenses, recurring payments |
+| GET / POST / DELETE | `/api/v1/goals`, `/api/v1/goals/{id}` | Savings goals |
+| POST | `/api/v1/goals/{id}/contributions` | Add to or withdraw from a goal |
+| POST | `/api/v1/imports` | Upload a CSV statement and get a categorised preview |
+| GET / DELETE | `/api/v1/imports/{id}` | View or discard a preview |
+| POST | `/api/v1/imports/{id}/commit` | Save the reviewed rows (with category / include overrides) |
 | GET | `/health` | Liveness check and whether the LLM is enabled |
 
 ## Testing and evaluation
