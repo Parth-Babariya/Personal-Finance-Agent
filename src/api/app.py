@@ -1,57 +1,96 @@
-"""FastAPI application for the Personal Finance Agent.
+"""FastAPI application factory for the Personal Finance Agent.
 
-Sets up the application with proper lifecycle management for services.
-Services are initialized during app startup (lifespan) and stored in
-app.state, making them available to all routes via dependency injection.
-
-This approach avoids module-level singletons, gives explicit control over
-service lifecycle, and makes the app easier to test.
+``create_app`` wires services explicitly, so tests and evals can build an app
+against an in-memory database and a fake LLM without touching globals.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI
 
-from .routes import router
+from ..agent.agent import FinanceAgent
+from ..agent.llm import LLMClient, OpenAIChatClient
+from ..agent.tools import ToolRegistry
+from ..config import Settings
 from ..services.auth_service import AuthService
-from ..services.db import SessionLocal, init_db
+from ..services.conversation_store import ConversationStore
+from ..services.db import init_db, make_engine, make_session_factory
 from ..services.insight_generator import SimpleInsightGenerator
-from ..services.llm_agent import FinanceLLMAgent
-from ..services.memory_manager import SessionMemory
 from ..services.sql_transaction_service import SQLTransactionService
+from .routes import api_router
+
+_UNSET = object()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize shared services on startup, clean up on shutdown.
+def build_llm(settings: Settings) -> LLMClient | None:
+    if not settings.llm_api_key:
+        return None
+    return OpenAIChatClient(settings.llm_api_key, settings.llm_model, base_url=settings.llm_base_url)
 
-    Using a lifespan context manager is the recommended FastAPI pattern
-    for managing service instances that need to live across requests.
-    This replaces module-level singletons, giving us:
-      - Explicit initialization and cleanup
-      - Easy swapping for tests (override app.state)
-      - No unbounded memory growth from leaked references
-    """
-    # Initialize persistent database and shared services.
-    init_db()
-    app.state.tx_service = SQLTransactionService(SessionLocal)
-    app.state.auth_service = AuthService(SessionLocal)
-    app.state.memory = SessionMemory()
-    app.state.insight_gen = SimpleInsightGenerator()
-    app.state.agent = FinanceLLMAgent(
-      tx_service=app.state.tx_service,
-      memory=app.state.memory,
-      insight_gen=app.state.insight_gen,
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    llm: LLMClient | None | object = _UNSET,
+    today: Callable[[], date] = date.today,
+) -> FastAPI:
+    settings = settings or Settings.from_env()
+    engine = make_engine(settings.database_url)
+    session_factory = make_session_factory(engine)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if settings.auto_create_tables:
+            init_db(engine)
+        yield
+        engine.dispose()
+
+    app = FastAPI(
+        title="Personal Finance Agent",
+        description="LLM tool-calling agent for personal finance, with JWT auth and SQL persistence.",
+        version="0.2.0",
+        lifespan=lifespan,
     )
-    yield
-    # Cleanup: clear memory on shutdown to release resources
-    app.state.memory.clear()
+
+    tx_service = SQLTransactionService(session_factory, today=today)
+    conversations = ConversationStore(session_factory)
+    insight_gen = SimpleInsightGenerator(settings.currency_symbol)
+    registry = ToolRegistry.default(tx_service, insight_gen)
+    llm_client = build_llm(settings) if llm is _UNSET else llm
+
+    app.state.settings = settings
+    app.state.tx_service = tx_service
+    app.state.auth_service = AuthService(session_factory)
+    app.state.conversations = conversations
+    app.state.agent = FinanceAgent(
+        registry,
+        conversations,
+        llm_client,  # type: ignore[arg-type]
+        currency=settings.currency_symbol,
+        max_steps=settings.agent_max_steps,
+        history_limit=settings.chat_history_limit,
+        max_message_chars=settings.max_message_chars,
+        today=today,
+    )
+
+    app.include_router(api_router, prefix="/api/v1")
+
+    @app.get("/health", tags=["meta"])
+    def health() -> dict[str, object]:
+        return {"status": "ok", "llm_enabled": app.state.agent.llm_enabled}
+
+    return app
 
 
-app = FastAPI(
-    title="Personal Finance Agent",
-    description="Stateful AI agent with memory for personal finance",
-    version="0.1.0",
-    lifespan=lifespan,
-)
-
-app.include_router(router, prefix="/api/v1")
+def __getattr__(name: str):
+    # Lazily build the default app so `uvicorn src.api.app:app` works without
+    # import-time side effects for tests that only need `create_app`.
+    if name == "app":
+        global app
+        app = create_app()
+        return app
+    raise AttributeError(name)
