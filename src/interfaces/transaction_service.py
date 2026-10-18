@@ -1,73 +1,62 @@
-"""
-Abstract interface for transaction data access in the Personal Finance Agent.
+"""Abstract interface for transaction data access.
 
-Design Principles:
-    - Dependency Inversion Principle (DIP): The API routes and agent tools
-      depend on this abstraction rather than on a concrete data store.  This
-      makes it straightforward to swap a mock in-memory store for a real
-      database-backed implementation without touching business logic.
-    - Single Responsibility Principle (SRP): This interface is concerned only
-      with CRUD operations on transactions; higher-level analytics belong in
-      ``IInsightGenerator``.
-    - Liskov Substitution Principle (LSP): Any conforming subclass (mock,
-      SQLite, PostgreSQL) can be used wherever ``ITransactionService`` is
-      expected.
+API routes and agent tools depend on this contract rather than on a concrete
+store, so the persistence layer can change without touching business logic.
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import date
 from typing import Any
 
 
 class ITransactionService(ABC):
-    """Contract for services that manage financial transactions.
-
-    Every concrete implementation must support retrieving, adding, and
-    summarizing transactions.  The interface uses plain ``dict`` objects for
-    flexibility; a production system could replace these with Pydantic models
-    while keeping the same method signatures.
-    """
+    """Contract for services that manage a user's financial transactions."""
 
     @abstractmethod
-    def get_transactions(
-        self, limit: int = 50, offset: int = 0, user_id: str | None = None
+    def add_transaction(self, data: dict[str, Any], user_id: str) -> dict[str, Any]:
+        """Persist a transaction and return it with server-side fields filled in."""
+
+    @abstractmethod
+    def get_transaction(self, transaction_id: str, user_id: str) -> dict[str, Any] | None:
+        """Return one transaction, or ``None`` if it does not exist for this user."""
+
+    @abstractmethod
+    def update_transaction(
+        self, transaction_id: str, changes: dict[str, Any], user_id: str
+    ) -> dict[str, Any] | None:
+        """Apply a partial update; ``None`` if the transaction was not found."""
+
+    @abstractmethod
+    def delete_transaction(self, transaction_id: str, user_id: str) -> bool:
+        """Delete a transaction; ``False`` if it was not found."""
+
+    @abstractmethod
+    def list_transactions(
+        self,
+        user_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        start: date | None = None,
+        end: date | None = None,
+        category: str | None = None,
+        type: str | None = None,
+        query: str | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        order_by: str = "date",
     ) -> list[dict[str, Any]]:
-        """Retrieve a paginated list of transactions.
-
-        Args:
-            limit: Maximum number of transactions to return.
-            offset: Number of transactions to skip (for pagination).
-
-        Returns:
-            A list of transaction dictionaries.
-        """
-        ...
+        """Return filtered transactions, newest first (or largest first)."""
 
     @abstractmethod
-    def add_transaction(
-        self, transaction: dict[str, Any], user_id: str | None = None
+    def get_summary(
+        self,
+        user_id: str,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+        category: str | None = None,
     ) -> dict[str, Any]:
-        """Persist a new transaction.
-
-        Args:
-            transaction: A dictionary with at least ``amount``; may also
-                include ``category`` and ``description``.
-
-        Returns:
-            The stored transaction dictionary, enriched with a generated
-            ``id`` and any server-side defaults.
-        """
-        ...
-
-    @abstractmethod
-    def get_summary(self, period: str = "month", user_id: str | None = None) -> dict[str, Any]:
-        """Compute an aggregate spending summary for the given period.
-
-        Args:
-            period: The time window to summarize (e.g., ``"month"``,
-                ``"week"``).
-
-        Returns:
-            A dictionary containing ``total_spending``,
-            ``transaction_count``, ``by_category``, and ``period``.
-        """
-        ...
+        """Aggregate income, expenses, net and per-category expense totals."""

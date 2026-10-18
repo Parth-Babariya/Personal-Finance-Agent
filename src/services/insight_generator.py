@@ -1,82 +1,60 @@
-"""
-Rule-based financial insight generator.
+"""Rule-based financial insight generator."""
 
-This module provides a concrete implementation of ``IInsightGenerator``
-that analyzes transaction data using simple heuristic rules.
+from __future__ import annotations
 
-Design Principles:
-    - Single Responsibility Principle (SRP): This class's only job is to
-      derive human-readable insights from raw transaction data.
-    - Liskov Substitution Principle (LSP): ``SimpleInsightGenerator`` can be
-      seamlessly replaced with an LLM-powered generator wherever
-      ``IInsightGenerator`` is expected — no caller changes needed.
-    - Open/Closed Principle (OCP): Additional insight rules can be added to
-      ``generate_insights`` without modifying the interface contract.
-"""
-
+from collections import defaultdict
 from typing import Any
 
 from ..interfaces.insight_generator import IInsightGenerator
 
+LARGE_TRANSACTION_SHARE = 0.25  # a single expense above 25% of spend is notable
+HIGH_CATEGORY_SHARE = 0.40  # one category above 40% of spend is notable
+
 
 class SimpleInsightGenerator(IInsightGenerator):
-    """Generates spending insights using deterministic rules.
+    """Deterministic heuristics over a set of transactions (no LLM required)."""
 
-    This implementation is intentionally lightweight and does not require
-    an API key or ML model.  In production, you could swap it for an
-    LLM-backed generator via Dependency Injection (DIP) — the rest of
-    the application would remain unchanged.
-    """
+    def __init__(self, currency_symbol: str = "₹"):
+        self._cur = currency_symbol
 
-    async def generate_insights(
-        self, transactions: list[dict[str, Any]]
-    ) -> list[str]:
-        """Analyze transactions and return a list of insight strings.
+    def _fmt(self, amount: float) -> str:
+        return f"{self._cur}{amount:,.2f}"
 
-        The current rule set includes:
-        1. **Top category** — identifies the highest-spending category.
-        2. **High-average alert** — warns when the average transaction
-           exceeds $100.
-        3. **Total summary** — reports aggregate spending and count.
-
-        Args:
-            transactions: List of transaction dicts with ``amount`` and
-                optional ``category`` keys.
-
-        Returns:
-            A list of plain-text insight strings.
-        """
-        # Handle the trivial case of no data
+    def generate_insights(self, transactions: list[dict[str, Any]]) -> list[str]:
         if not transactions:
             return ["No transactions to analyze."]
 
+        expenses = [t for t in transactions if t.get("type", "expense") == "expense"]
+        income = sum(t["amount"] for t in transactions if t.get("type") == "income")
+        spent = sum(t["amount"] for t in expenses)
         insights: list[str] = []
-        total = sum(t.get("amount", 0) for t in transactions)
 
-        # --- Rule 1: Category breakdown ---
-        # Aggregate spending per category so we can identify the top one.
-        by_category: dict[str, float] = {}
-        for t in transactions:
-            cat = t.get("category", "uncategorized")
-            by_category[cat] = by_category.get(cat, 0) + t.get("amount", 0)
-
-        if by_category:
-            # Determine the category with the highest total spend
-            top_cat = max(by_category, key=by_category.get)  # type: ignore[arg-type]
+        if expenses:
+            by_category: dict[str, float] = defaultdict(float)
+            for t in expenses:
+                by_category[t.get("category", "other")] += t["amount"]
+            top_cat, top_amt = max(by_category.items(), key=lambda kv: kv[1])
+            share = top_amt / spent if spent else 0
             insights.append(
-                f"Your highest spending category is '{top_cat}' "
-                f"at ${by_category[top_cat]:.2f}."
+                f"Your highest spending category is '{top_cat}' at {self._fmt(top_amt)} "
+                f"({share:.0%} of expenses)."
             )
+            if share > HIGH_CATEGORY_SHARE and len(by_category) > 1:
+                insights.append(f"'{top_cat}' dominates your spending; consider setting a budget for it.")
 
-        # --- Rule 2: Spending alert ---
-        # Flag unusually high average spending for user awareness.
-        avg_amount = total / len(transactions) if transactions else 0
-        if avg_amount > 100:
-            insights.append(
-                f"Your average transaction is ${avg_amount:.2f}. "
-                "Consider reviewing large purchases."
-            )
+            largest = max(expenses, key=lambda t: t["amount"])
+            if spent and largest["amount"] / spent > LARGE_TRANSACTION_SHARE and len(expenses) > 1:
+                label = largest.get("description") or largest.get("category", "")
+                insights.append(
+                    f"Your largest expense was {self._fmt(largest['amount'])} ({label}) on {largest['date']}."
+                )
 
-        # --- Rule 3: Total summary ---
-        insights.append(f"Total spending: ${total:.2f} across {len(transactions)} transactions.")
+        if income:
+            savings_rate = (income - spent) / income
+            if savings_rate < 0:
+                insights.append(f"You spent {self._fmt(spent - income)} more than you earned.")
+            else:
+                insights.append(f"You saved {savings_rate:.0%} of your income ({self._fmt(income - spent)}).")
+
+        insights.append(f"Total spending: {self._fmt(spent)} across {len(expenses)} expenses.")
         return insights
