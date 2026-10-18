@@ -323,7 +323,12 @@ class FinanceAgent:
                 "role": "assistant",
                 "content": response.content or None,
                 "tool_calls": [
-                    {"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.arguments}}
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {"name": c.name, "arguments": c.arguments},
+                        **({"extra_content": c.extra_content} if c.extra_content else {}),
+                    }
                     for c in response.tool_calls
                 ],
             })

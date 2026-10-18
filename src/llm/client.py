@@ -17,6 +17,9 @@ class ToolCall:
     id: str
     name: str
     arguments: str  # raw JSON string as produced by the model
+    # Provider-specific data that must be echoed back unchanged, e.g. Gemini's
+    # {"google": {"thought_signature": ...}}; without it Gemini rejects the next turn.
+    extra_content: dict[str, Any] | None = None
 
 
 @dataclass
@@ -89,7 +92,7 @@ class OpenAIChatClient:
         stream = await self._client.chat.completions.create(**kwargs)
 
         content: list[str] = []
-        calls: dict[int, dict[str, str]] = {}
+        calls: dict[int, dict[str, Any]] = {}
         usage = Usage()
         async for chunk in stream:
             if chunk.usage:
@@ -102,12 +105,20 @@ class OpenAIChatClient:
                 yield TextDelta(delta.content)
             # Tool calls arrive as fragments keyed by index; stitch them together.
             for fragment in delta.tool_calls or []:
-                slot = calls.setdefault(fragment.index, {"id": "", "name": "", "arguments": ""})
+                index = fragment.index
+                if index is None:
+                    # Gemini omits the index and sends each call whole: a new id starts a new call.
+                    known_ids = {c["id"] for c in calls.values()}
+                    index = len(calls) if fragment.id not in known_ids else max(calls)
+                slot = calls.setdefault(index, {"id": "", "name": "", "arguments": "", "extra_content": None})
                 if fragment.id:
                     slot["id"] = fragment.id
                 if fragment.function:
                     slot["name"] += fragment.function.name or ""
                     slot["arguments"] += fragment.function.arguments or ""
+                extra = getattr(fragment, "extra_content", None)
+                if extra:
+                    slot["extra_content"] = extra
 
         yield LLMResponse(
             content="".join(content),

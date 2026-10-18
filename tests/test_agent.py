@@ -153,3 +153,14 @@ async def test_fallback_reasons(registry, conversations, seeded):
 async def test_done_event_returns_masked_user_message(registry, conversations, seeded):
     events = [e async for e in make_agent(registry, conversations, None).stream("PAN ABCDE1234F spend?", seeded)]
     assert events[-1]["user_message"] == "PAN [PAN] spend?"
+
+
+async def test_provider_extra_content_is_echoed_back(registry, conversations, seeded):
+    signature = {"google": {"thought_signature": "sig-abc"}}
+    llm = FakeLLM([
+        LLMResponse(tool_calls=[ToolCall("c1", "get_insights", "{}", extra_content=signature)]),
+        text("done"),
+    ])
+    await make_agent(registry, conversations, llm).respond("insights?", seeded)
+    assistant = llm.requests[1]["messages"][-2]
+    assert assistant["tool_calls"][0]["extra_content"] == signature

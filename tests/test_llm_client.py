@@ -67,3 +67,23 @@ async def test_streams_text_deltas_and_omits_empty_tools():
     assert [e.text for e in events if isinstance(e, TextDelta)] == ["You spent ", "₹800."]
     assert events[-1].content == "You spent ₹800." and events[-1].tool_calls == []
     assert "tools" not in captured[0]
+
+
+async def test_gemini_style_calls_without_index_keep_thought_signature():
+    """Gemini omits `index`, sends whole calls, and attaches a thought signature that must be echoed back."""
+    signature = {"google": {"thought_signature": "sig-abc"}}
+    chunks = [
+        _chunk({"role": "assistant", "tool_calls": [
+            {"id": "call_1", "type": "function", "extra_content": signature,
+             "function": {"name": "get_spending_summary", "arguments": '{"period": "this_month"}'}}
+        ]}),
+        _chunk({"tool_calls": [
+            {"id": "call_2", "type": "function",
+             "function": {"name": "get_top_expenses", "arguments": "{}"}}
+        ]}),
+    ]
+    events = [e async for e in _client(chunks, []).stream([{"role": "user", "content": "q"}], [])]
+
+    calls = events[-1].tool_calls
+    assert [c.id for c in calls] == ["call_1", "call_2"]  # not merged into one call
+    assert calls[0].extra_content == signature and calls[1].extra_content is None
