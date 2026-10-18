@@ -12,19 +12,19 @@ numbers taken from the database.
 
 - **Tool-calling agent loop.** The LLM picks from 6 typed tools, sees their results, and writes the answer.
   It can call several tools in one step and supports multi-step reasoning with a step budget.
-- **Grounded and safe by construction.** Tool arguments are validated with Pydantic. The user's identity
-  comes from the JWT, never from the model, so a prompt injection cannot read another user's data. Errors
-  are returned to the model so it can correct itself.
+- **Guardrails.** Writes need user confirmation, money figures in replies are checked against tool
+  results at runtime, card/Aadhaar/PAN numbers are masked before reaching the LLM, and rate limits plus a
+  daily token budget cap abuse and cost. Details in [Guardrails](#guardrails).
 - **Streaming.** `POST /chat/stream` sends Server-Sent Events: tool calls as they happen, then answer tokens.
 - **Multi-turn memory.** Conversation history is stored in SQL per user, so follow-ups like "and last
   month?" work.
 - **Works without an LLM.** A deterministic keyword planner uses the same tools when no API key is set or
   the provider fails. It never re-runs a write the LLM already made.
 - **Any OpenAI-compatible provider.** OpenAI, Groq, Gemini or Ollama, selected with `OPENAI_BASE_URL`.
-- **Eval harness.** 30 cases (summaries, comparisons, lookups, writes, multi-turn, guardrails). Each
+- **Eval harness.** 34 cases (summaries, comparisons, lookups, writes, multi-turn, guardrails). Each
   reply is checked against ground truth computed from the database. See [evals/RESULTS.md](evals/RESULTS.md).
 - **Solid basics.** Money stored as `Numeric(12,2)`, income and expense types, real date-range periods,
-  full transaction CRUD with filters, Alembic migrations, 86 tests on an isolated in-memory
+  full transaction CRUD with filters, Alembic migrations, 156 tests on an isolated in-memory
   database, and lint plus migration checks in CI.
 
 ## Architecture
@@ -64,10 +64,25 @@ One chat turn:
 | `search_transactions` | Filter by text, category, type, amount range and dates |
 | `get_top_expenses` | Largest expenses in a period |
 | `get_insights` | Rule-based observations (top category, large purchases, savings rate) |
-| `add_transaction` | Record an expense or income from natural language (future dates rejected) |
+| `add_transaction` | Propose an expense or income from natural language; saved only after the user confirms |
 
 Periods: `today`, `this_week`, `last_7_days`, `this_month`, `last_month`, `last_30_days`, `this_year`,
 `last_year`, `all_time`, or explicit `start_date`/`end_date`.
+
+## Guardrails
+
+| Risk | Guardrail |
+|---|---|
+| Model reads another user's data | `user_id` comes from the JWT via `ToolContext`; it is not a tool argument, so no prompt can change it |
+| Malformed or out-of-range tool calls | Pydantic validation (enums, ranges, no future dates, no extra fields); errors go back to the model |
+| Misread message adds a wrong transaction | `add_transaction` creates a pending action (15 min expiry); saved only after "yes" or the Confirm button; possible duplicates flagged; max 3 writes per message |
+| Invented numbers | After each LLM reply, every currency figure must match a tool result, the conversation, or a sum/difference of tool numbers; one corrective retry, then a visible warning |
+| Sensitive identifiers sent to the provider | Card numbers (Luhn-checked), Aadhaar, PAN, phone, email/UPI and account numbers masked before the LLM call and before storage |
+| Runaway loops or slow providers | Step budget with a forced final answer, max tool calls per step, and an overall deadline (`AGENT_TIMEOUT_SECONDS`) with fallback |
+| Cost abuse and brute force | Per-user chat rate limit, per-IP auth limit, lockout after repeated failed logins, daily LLM token budget per user (then fallback) |
+| Off-topic requests and advice | System prompt scopes the assistant to budgeting and declines investment, tax or legal advice; covered by eval cases |
+
+The rate limiter is in-process; with several API replicas it should move to a shared store such as Redis.
 
 ## Quick start
 
@@ -94,8 +109,10 @@ For production, set `APP_ENV=production` (the app then refuses to start without 
 | GET | `/api/v1/transactions` | List, with `period`/`start_date`/`end_date`/`category`/`type`/`q`/pagination |
 | GET / PATCH / DELETE | `/api/v1/transactions/{id}` | Read, partially update, delete |
 | GET | `/api/v1/summary` | Totals for a period or date range |
-| POST | `/api/v1/chat` | Agent reply, plus the tool trace, mode and latency |
-| POST | `/api/v1/chat/stream` | The same as SSE events: `tool_call`, `tool_result`, `token`, `done` |
+| POST | `/api/v1/chat` | Agent reply, plus the tool trace, mode, pending actions and grounding report |
+| POST | `/api/v1/chat/stream` | The same as SSE events: `tool_call`, `tool_result`, `token`, `reset`, `done` |
+| GET | `/api/v1/actions` | Open proposals waiting for confirmation |
+| POST | `/api/v1/actions/{id}/confirm`, `/cancel` | Apply or discard a proposed write |
 | GET / DELETE | `/api/v1/chat/history` | View or clear conversation history |
 | GET | `/api/v1/memory/search` | Keyword search over past conversation |
 | GET | `/health` | Liveness check and whether the LLM is enabled |
