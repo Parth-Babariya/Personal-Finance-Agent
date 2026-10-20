@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feat/**"]
   pull_request:
     branches: ["main"]
 
@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint
-        run: ruff check src tests evals migrations
+        run: ruff check src tests evals migrations scripts
 
       - name: Test
         run: pytest -q --cov --cov-report=term --cov-report=xml
@@ -37,3 +37,29 @@ jobs:
 
       - name: Agent eval (fallback mode, no API key)
         run: python -m evals.run_eval --mode fallback
+
+  docker:
+    # Builds the image and runs the full stack (Postgres + API + UI) the way users would.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 180
+
+      - name: Migrations match models on Postgres
+        run: docker compose exec -T api alembic check
+
+      - name: Smoke test the API end to end
+        run: python scripts/smoke_test.py http://localhost:8003
+
+      - name: UI is serving
+        run: curl --fail --silent http://localhost:8501/_stcore/health
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
