@@ -141,8 +141,23 @@ answers instead, unless text has already been streamed or data written.
 
 ## Quick start
 
-**Requirements:** Python 3.11+ and, optionally, a free LLM key ([Groq](https://console.groq.com/keys) is
-the default in `.env.example`).
+An LLM key is optional ([Groq](https://console.groq.com/keys) has a free tier and is the default in
+`.env.example`). Without one, everything runs on the keyword planner.
+
+### Option A: Docker (one command)
+
+```bash
+git clone https://github.com/Parth-Babariya/Personal-Finance-Agent.git
+cd Personal-Finance-Agent
+cp .env.example .env              # optional: paste your LLM key (Windows: copy .env.example .env)
+docker compose up --build
+```
+
+Then open the UI at **http://localhost:8501** or the API docs at **http://localhost:8003/docs**. This
+starts Postgres, runs the database migrations, then starts the API and the UI. Stop with `Ctrl+C`; add
+`-v` to `docker compose down` to also delete the database.
+
+### Option B: Local Python (3.11+)
 
 ```bash
 git clone https://github.com/Parth-Babariya/Personal-Finance-Agent.git
@@ -153,7 +168,7 @@ pip install -r requirements-dev.txt
 copy .env.example .env            # Windows  (macOS/Linux: cp .env.example .env), then paste your key
 ```
 
-Run the API and the UI in two terminals:
+Run the API and the UI in two terminals (uses SQLite by default):
 
 ```bash
 uvicorn src.api.app:app --port 8003 --reload     # API + interactive docs at http://localhost:8003/docs
@@ -217,8 +232,9 @@ python -m evals.run_eval --mode both --write-results            # full eval, upd
 python -m evals.run_eval --mode both --resume --write-results   # continue after a free-tier quota stop
 ```
 
-CI runs lint, tests with coverage, an Alembic check that migrations match the models, and the fallback eval
-on every push.
+CI runs lint, tests with coverage, an Alembic check that migrations match the models and the fallback eval,
+then builds the Docker image, starts the full stack against Postgres and runs an end-to-end smoke test
+([scripts/smoke_test.py](scripts/smoke_test.py)).
 
 Eval runs are resumable: each finished case is checkpointed, and resuming is refused if the model, endpoint,
 cases or agent code changed, so results from different setups can never be mixed.
@@ -253,7 +269,13 @@ so the finance logic works and is tested without any LLM.
 
 ## Roadmap
 
-- [ ] Docker Compose (API, UI, Postgres)
+- [x] Docker Compose (Postgres, API, UI), smoke-tested in CI
 - [ ] Structured logging and an audit log of agent writes
 - [ ] Pinned dependency lockfile
 - [ ] Hosted demo
+
+---
+
+## License
+
+[MIT](LICENSE)
