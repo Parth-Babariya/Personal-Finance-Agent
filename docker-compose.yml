@@ -1,0 +1,67 @@
+# Full stack: Postgres + FastAPI + Streamlit.
+#   docker compose up --build        then open http://localhost:8501 (UI) or http://localhost:8003/docs (API)
+# Put OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL in .env to enable the LLM; without them the
+# agent uses the keyword fallback.
+
+name: personal-finance-agent
+
+x-app: &app
+  build: .
+  image: personal-finance-agent:latest
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance
+      POSTGRES_DB: finance
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance -d finance"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # These win over values from .env so the container always uses the compose database.
+      DATABASE_URL: postgresql+psycopg://finance:finance@db:5432/finance
+      AUTO_CREATE_TABLES: "false"
+    ports:
+      - "8003:8003"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  ui:
+    <<: *app
+    command: ["streamlit", "run", "src/ui/app.py", "--server.port=8501", "--server.address=0.0.0.0",
+              "--server.headless=true"]
+    environment:
+      API_BASE_URL: http://api:8003/api/v1
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  pgdata:
